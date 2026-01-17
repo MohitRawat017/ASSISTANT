@@ -1,150 +1,74 @@
-# V1 Desktop Voice Assistant (Push-to-Talk)
+# Desktop Voice Assistant
 
-A local, push-to-talk desktop AI assistant that listens on demand, understands spoken or typed commands, responds with low-latency speech, and performs basic desktop actions like opening applications or searching. This is V1 — deliberately scoped, safe, and stable.
-
-## 🚀 Project Goals (V1)
-This project aims to build a personal AI co-pilot, not a fully autonomous agent.
-
-### ✅ What V1 DOES
-- **Push-to-activate**: Uses a hotkey (F2) for listening.
-- **Speech Recognition**: English only, optimized for low latency.
-- **Text Fallback**: Supports manual text command input.
-- **Fast Responses**: Spoken responses with selectable voices.
-- **Desktop Control**: Open apps, search files, open URLs, and focus applications.
-
-### ❌ What V1 DOES NOT
-- Always-on wake word activation.
-- Autonomous workflows or multi-step UI automation.
-- File deletion or system modification.
-- Continuous screen monitoring.
+A powerful, local-first voice assistant built with Python. It leverages state-of-the-art models for speech recognition (Faster Whisper) and text-to-speech (Kokoro), powered by Google's Gemini 1.5 Flash for intelligent responses.
 
 ---
 
-## 🧩 Core Features
+## 🚀 Version 1.0 (Current)
 
-### 1️⃣ Push-to-Talk Activation
-- Press **F2** to activate listening.
-- Press **F2** again or use "cancel" keywords to interrupt.
-- No always-on microphone for improved privacy.
+The current V1 implementation focuses on a seamless conversational experience with high-quality audio processing.
 
-### 2️⃣ Speech Recognition (ASR)
-- Converts spoken English to text using open-source Hugging Face models.
-- Optimized for speed and low-latency interaction.
+### ✅ Core Features
+- **Continuous Listening**: The assistant enters a listening loop, ready to transcribe your speech.
+- **High-Performance ASR**: Uses **Faster Whisper** (int8 quantization) on CUDA for near-instant speech-to-text.
+- **Intelligent Brain**: Integrated with **Gemini 2.5 Flash** for fast, witty, and helpful responses.
+- **Natural TTS**: Uses **Kokoro-82M** (running locally on GPU) to generate extremely natural-sounding speech.
+- **Conversation Loop**: Listens, thinks, and speaks in a continuous cycle.
+- **Graceful Exit**: Say "exit", "quit", or "stop" to end the session.
 
-### 3️⃣ Text-to-Speech (TTS)
-- Streaming playback for minimal perceived delay.
-- Customizable voice selection via configuration.
+### 🏗 Architecture
+- **Input**: Microphone capture (SoundDevice) -> Faster Whisper (ASR).
+- **Processing**: Text -> Gemini 2.5 Flash API.
+- **Output**: Text Response -> Kokoro TTS -> Audio Playback.
+- **Tech Stack**: Python, PyTorch (CUDA), SoundDevice, Faster Whisper, Kokoro, Google GenAI.
 
-### 4️⃣ Desktop Control
-- Supported actions:
-    - Open applications (e.g., Chrome, Spotify).
-    - Search for files or apps.
-    - Open URLs in the default browser.
-    - Bring specific applications to focus.
-- **Constraint**: All actions are explicit, single-step, and non-destructive.
-
----
-
-## 🏗 Architecture Overview
-
-```mermaid
-graph TD
-    A[F2 Press / Text Input] --> B{Input Type}
-    B -->|Audio| C[Audio Capture]
-    B -->|Text| D[NLP Input]
-    C --> E[ASR Pipeline]
-    E --> F[LLM Reasoning + Tools]
-    D --> F
-    F --> G{Action Required?}
-    G -->|Yes| H[OS-Level Control]
-    G -->|No| I[Text Response]
-    H --> I
-    I --> J[Text-to-Speech]
-    J --> K[Audio Playback]
-```
-
-### Key Design Principles
-- **Event-driven**: Not always listening.
-- **Modular**: Discrete components for ASR, LLM, TTS, and Control.
-- **Safety First**: Explicit tool calls and non-destructive actions.
-
----
-
-## 📂 Project Structure
-
+### 📂 Project Structure
 ```text
-your_assistant_project/
-├── models/                     # Optional: cached local models
-│   ├── asr/
-│   ├── llm/
-│   └── tts/
+assistant/
+├── models/
+│   ├── asr/ (Faster Whisper)
+│   └── tts/ (Kokoro-82M)
 ├── src/
-│   ├── main.py                 # Entry point & state machine
-│   ├── audio_input/            # Capture & ASR (mic_listener, asr, vad)
-│   ├── nlp/                    # LLM handlers & prompt templates
-│   ├── audio_output/           # TTS & playback
-│   ├── desktop_control/        # OS-specific actions
-│   ├── utils/                  # Logger & configuration
-│   └── ui/                     # Optional text UI
-├── tests/                      # Unit and integration tests
+│   ├── audio_input/
+│   │   └── asr.py        # Speech-to-Text handler
+│   ├── audio_output/
+│   │   └── tts.py        # Text-to-Speech handler
+│   ├── utils/
+│   │   └── config.py     # Central configuration
+│   └── app.py            # Main application loop
 ├── requirements.txt
-├── README.md
-└── .env
+└── .env                  # API Keys
 ```
 
 ---
 
-## 🧠 State Machine (V1)
-The assistant transitions between the following states:
-`IDLE` ➔ (F2) ➔ `LISTENING` ➔ (Capture) ➔ `THINKING` ➔ (Tool Call) ➔ `ACTING` ➔ `SPEAKING` ➔ `IDLE`
+## 🛣 Version 2.0 (Planned)
 
-*Interruptions (F2 or cancel keywords) reset the state immediately.*
+The next major iteration (V2) will focus on **Action** and **Control**, transforming the assistant from a chatbot into a true desktop operator.
 
----
-
-## ⚡ Latency Strategy
-Target perceived response time: **600–800 ms**.
-- Push-to-talk avoids background noise processing.
-- Streaming ASR and TTS playback minimize wait times.
-- Early response chunking for faster verbal feedback.
+### � Coming Soon
+- **Desktop Control**: Ability to open applications, manage windows, and control system volume.
+- **Tool Use**: The LLM will be equipped with function calling to interact with the OS.
+- **Automation**: Perform basic tasks like "Play Spotify", "Open Chrome", or "Search for [X]".
+- **Enhanced Memory**: Short-term context retention for multi-turn tasks.
 
 ---
 
-## 🛡 Safety & Guardrails
-- **Desktop Actions**: Explicit tool invocation only; no free-form execution.
-- **Ambiguous Requests**: If intent is unclear, the assistant will state: *"I'm sorry, I am incapable of doing that."* to reduce hallucinations.
+## � Setup & Usage
 
----
+1. **Install Dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   # Ensure PyTorch with CUDA is installed
+   ```
 
-## 🧪 Example Commands
-- “Open Chrome”
-- “Search for my resume”
-- “Open Spotify”
-- “What time is it?”
-- “Cancel” / “Forget it”
+2. **Environment Variables**:
+   Create a `.env` file:
+   ```env
+   GEMINI_API_KEY=your_key_here
+   ```
 
----
-
-## ⚙ Configuration & Dependencies
-- **Settings**: All configurations (models, voices, hotkeys) live in `src/utils/config.py`.
-- **Requirements**: Python 3.10+, Hugging Face Transformers, PyAudio/sounddevice, OS automation libraries, and Torch.
-
----
-
-## 🚧 Known Limitations (V1)
-- English only.
-- Single-turn commands (no memory persistence).
-- No continuous screen awareness or complex UI navigation.
-
----
-
-## 🛣 Roadmap (V2)
-- Wake-word activation.
-- Screen understanding and smarter disambiguation.
-- Short & long-term memory.
-- Multi-step workflows.
-
----
-
-## 🧠 Philosophy
-This assistant is designed as a **reliable co-pilot**, not an autonomous pilot. Stability, safety, and responsiveness are prioritized over complexity.
+3. **Run the Assistant**:
+   ```bash
+   python -m src.app
+   ```

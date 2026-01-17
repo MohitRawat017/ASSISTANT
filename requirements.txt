@@ -1,0 +1,20 @@
+# Note: torch, torchvision, torchaudio should be installed separately with CUDA support:
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+transformers>=4.30.0
+
+# Environment Management
+python-dotenv>=1.0.0
+
+google-genai 
+PySide6 
+opencv-python 
+Pillow 
+numpy 
+websockets 
+pyaudio
+
+# asr 
+faster-whisper
+sounddevice
+numpy
