@@ -17,17 +17,17 @@ def download_model(model_id, cache_dir, model_type):
                 local_dir=cache_dir,
                 local_dir_use_symlinks=False
             )
-        # elif model_type == "llm":
-        #     # Specifically for GGUF models
-        #     snapshot_download(
-        #         repo_id=model_id,
-        #         local_dir=cache_dir,
-        #         # allow_patterns=["*Q4_K_M.gguf"],
-        #         local_dir_use_symlinks=False
-        #     )
         elif model_type == "llm":
-            AutoTokenizer.from_pretrained(model_id, cache_dir=cache_dir)
-            AutoModelForCausalLM.from_pretrained(model_id, cache_dir=cache_dir)
+            # Specifically for GGUF models
+            snapshot_download(
+                repo_id=model_id,
+                local_dir=cache_dir,
+                allow_patterns=["*Q6_K_L.gguf"],
+                local_dir_use_symlinks=False
+            )
+        # elif model_type == "llm":
+        #     AutoTokenizer.from_pretrained(model_id, cache_dir=cache_dir)
+        #     AutoModelForCausalLM.from_pretrained(model_id, cache_dir=cache_dir)
         elif model_type == "tts":
             snapshot_download(
                 repo_id=model_id,
@@ -63,7 +63,7 @@ def main():
             "dir": os.path.join(BASE_DIR, "asr")
         },
         {
-            "id": "Qwen/Qwen2.5-3B-Instruct", 
+            "id": "bartowski/Llama-3.2-3B-Instruct-GGUF", 
             "type": "llm",
             "dir": os.path.join(BASE_DIR, "llm")
         },

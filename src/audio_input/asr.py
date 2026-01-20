@@ -15,7 +15,7 @@ class ASRHandler:
 
     def listen(self, duration=Config.RECORD_DURATION):
         print("Listening...")
-        audio = sd.rec(
+        audio = sd.rec( 
             int(duration * Config.SAMPLE_RATE_REC),
             samplerate=Config.SAMPLE_RATE_REC,
             channels=1,
@@ -28,4 +28,4 @@ class ASRHandler:
         print("Transcribing...")
         segments, _ = self.model.transcribe(audio_data, beam_size=5)
         text = " ".join(seg.text for seg in segments).strip()
-        return text
+        return text 
