@@ -18,7 +18,7 @@ class Config:
     # Audio Settings
     SAMPLE_RATE_REC = 16000
     SAMPLE_RATE_PLAY = 24000
-    RECORD_DURATION = 4  # seconds
+    RECORD_DURATION = 6.5  # seconds
     
     # GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
     OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")

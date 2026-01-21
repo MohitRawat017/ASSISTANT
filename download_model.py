@@ -58,7 +58,8 @@ def main():
     
     MODELS = [
         {
-            "id": "Systran/faster-whisper-small.en",
+            # "id": "Systran/faster-distil-whisper-medium.en",
+            "id": "deepdml/faster-whisper-large-v3-turbo-ct2",
             "type": "asr",
             "dir": os.path.join(BASE_DIR, "asr")
         },

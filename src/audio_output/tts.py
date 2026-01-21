@@ -1,5 +1,4 @@
 import re
-import torch
 import sounddevice as sd
 from kokoro import KPipeline, KModel
 from src.utils.config import Config

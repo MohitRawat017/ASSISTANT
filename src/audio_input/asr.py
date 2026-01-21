@@ -9,7 +9,7 @@ class ASRHandler:
         self.model = WhisperModel(
             Config.ASR_MODEL_PATH,
             device=Config.DEVICE,
-            compute_type="int8" if Config.DEVICE == "cuda" else "int8"
+            compute_type="float16" if Config.DEVICE == "cuda" else "int8"
         )
         print("ASR Ready.")
 
