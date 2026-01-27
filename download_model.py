@@ -42,6 +42,13 @@ def download_model(model_id, cache_dir, model_type):
     except Exception as e:
         print(f"Error downloading {model_id}: {str(e)}")
 
+def get_model_folder_name(model_id):
+    """
+    Extract a clean folder name from the model ID.
+    Example: 'deepdml/faster-whisper-large-v3-turbo-ct2' -> 'faster-whisper-large-v3-turbo-ct2'
+    """
+    return model_id.split('/')[-1]
+
 def main():
     load_dotenv()
     hf_token = os.getenv("HF_TOKEN")
@@ -50,36 +57,46 @@ def main():
         print("Warning: HF_TOKEN not found in .env. Some models may require authentication.")
     else:
         os.environ["HUGGINGFACE_HUB_TOKEN"] = hf_token
-
+    
     # Optimized transfer if hf_transfer is installed
     os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
-
+    
     BASE_DIR = os.path.abspath("models")
     
     MODELS = [
         {
-            # "id": "Systran/faster-distil-whisper-medium.en",
             "id": "deepdml/faster-whisper-large-v3-turbo-ct2",
             "type": "asr",
-            "dir": os.path.join(BASE_DIR, "asr")
+        },
+        {
+            "id": "Systran/faster-distil-whisper-medium.en",
+            "type": "asr",
         },
         {
             "id": "bartowski/Llama-3.2-3B-Instruct-GGUF", 
             "type": "llm",
-            "dir": os.path.join(BASE_DIR, "llm")
         },
         {
-            "id": "hexgrad/Kokoro-82M",
+            # "id": "hexgrad/Kokoro-82M",
+            # "id": "Qwen/Qwen3-TTS-12Hz-0.6B-Base",
+            "id": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
             "type": "tts",
-            "dir": os.path.join(BASE_DIR, "tts")
         }
     ]
-
+    
     for model in MODELS:
-        os.makedirs(model['dir'], exist_ok=True)
+        # Create the type directory (e.g., models/asr, models/llm, models/tts)
+        type_dir = os.path.join(BASE_DIR, model['type'])
+        
+        # Create the specific model directory (e.g., models/asr/faster-whisper-large-v3-turbo-ct2)
+        model_folder_name = get_model_folder_name(model['id'])
+        model_dir = os.path.join(type_dir, model_folder_name)
+        
+        os.makedirs(model_dir, exist_ok=True)
+        
         download_model(
             model_id=model['id'],
-            cache_dir=model['dir'],
+            cache_dir=model_dir,
             model_type=model['type']
         )
 

@@ -1,74 +1,148 @@
-# Desktop Voice Assistant
+# 🎙️ Desktop Voice Assistant
 
-A powerful, local-first voice assistant built with Python. It leverages state-of-the-art models for speech recognition (Faster Whisper) and text-to-speech (Kokoro), powered by Google's Gemini 1.5 Flash for intelligent responses.
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=for-the-badge&logo=python&logoColor=white)
+![Status](https://img.shields.io/badge/Status-Version%202.0-green?style=for-the-badge)
+![Ollama](https://img.shields.io/badge/Backend-Ollama-orange?style=for-the-badge)
+![Torch](https://img.shields.io/badge/PyTorch-CUDA%20Enabled-red?style=for-the-badge&logo=pytorch)
+
+A powerful, local-first voice assistant built for low-latency interactions. It listens, thinks, and speaks using state-of-the-art open-source models running entirely on your machine.
 
 ---
 
-## 🚀 Version 1.0 (Current)
+## 🧠 System Architecture
 
-The current V1 implementation focuses on a seamless conversational experience with high-quality audio processing.
+```mermaid
+graph TD
+    subgraph Input
+        User([User]) -->|Voice| Mic[Microphone]
+    end
 
-### ✅ Core Features
-- **Continuous Listening**: The assistant enters a listening loop, ready to transcribe your speech.
-- **High-Performance ASR**: Uses **Faster Whisper** (int8 quantization) on CUDA for near-instant speech-to-text.
-- **Intelligent Brain**: Integrated with **Gemini 2.5 Flash** for fast, witty, and helpful responses.
-- **Natural TTS**: Uses **Kokoro-82M** (running locally on GPU) to generate extremely natural-sounding speech.
-- **Conversation Loop**: Listens, thinks, and speaks in a continuous cycle.
-- **Graceful Exit**: Say "exit", "quit", or "stop" to end the session.
+    subgraph "Processing Core (Local)"
+        Mic -->|Audio Buffer| ASR[Faster-Whisper]
+        ASR -->|Transcription| App[Application Loop]
+        
+        App -->|History & Context| LLM[Ollama (Llama 3.2)]
+        LLM -->|Streamed Tokens| TTS[Qwen3 TTS / Kokoro]
+        
+        App -.->|Background Task| Summarizer[Conversation Summarizer]
+    end
 
-### 🏗 Architecture
-- **Input**: Microphone capture (SoundDevice) -> Faster Whisper (ASR).
-- **Processing**: Text -> Gemini 2.5 Flash API.
-- **Output**: Text Response -> Kokoro TTS -> Audio Playback.
-- **Tech Stack**: Python, PyTorch (CUDA), SoundDevice, Faster Whisper, Kokoro, Google GenAI.
+    subgraph "Action & Output"
+        App -->|Command| Tools[Tool Handler]
+        Tools -->|Query| Search[Web Search]
+        Tools -->|Launch| Apps[App Launcher]
+        Tools -->|Control| Spotify[Spotify]
+        
+        TTS -->|Audio| Speaker([Speakers])
+    end
 
-### 📂 Project Structure
-```text
-assistant/
-├── models/
-│   ├── asr/ (Faster Whisper)
-│   └── tts/ (Kokoro-82M)
-├── src/
-│   ├── audio_input/
-│   │   └── asr.py        # Speech-to-Text handler
-│   ├── audio_output/
-│   │   └── tts.py        # Text-to-Speech handler
-│   ├── utils/
-│   │   └── config.py     # Central configuration
-│   └── app.py            # Main application loop
-├── requirements.txt
-└── .env                  # API Keys
+    style App fill:#f9f,stroke:#333,stroke-width:2px
+    style LLM fill:#bbf,stroke:#333,stroke-width:2px
+    style ASR fill:#bfb,stroke:#333,stroke-width:2px
 ```
 
 ---
 
-## 🛣 Version 2.0 (Planned)
+## ✨ Key Features (V2)
 
-The next major iteration (V2) will focus on **Action** and **Control**, transforming the assistant from a chatbot into a true desktop operator.
-
-### � Coming Soon
-- **Desktop Control**: Ability to open applications, manage windows, and control system volume.
-- **Tool Use**: The LLM will be equipped with function calling to interact with the OS.
-- **Automation**: Perform basic tasks like "Play Spotify", "Open Chrome", or "Search for [X]".
-- **Enhanced Memory**: Short-term context retention for multi-turn tasks.
+- **🗣️ Continuous Conversation**: Always-listening loop with `sounddevice` and `Faster-Whisper` for near-instant transcription.
+- **⚡ Streaming Responses**: Low-latency token streaming from the LLM directly to the TTS engine.
+- **🤖 Local Intelligence**: Powered by **Ollama** (Llama 3.2, Gemma 3) running locally—no data leaves your machine unless you search the web.
+- **🎙️ Voice Cloning**: Uses **Qwen3 TTS** to clone a reference voice for natural-sounding speech.
+- **🛠️ Integrated Tools**:
+  - `search <query>` - Web search with LLM synthesis.
+  - `open <app_name>` - Launch local applications.
+  - `play <song> spotify` - Direct Spotify control.
+- **🧠 Efficient Memory**: Background threads compress conversation history to keep the context window optimized.
 
 ---
 
-## � Setup & Usage
+## 🛠️ Tech Stack
 
-1. **Install Dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   # Ensure PyTorch with CUDA is installed
-   ```
+| Component | Technology | Description |
+|-----------|------------|-------------|
+| **ASR** | `Faster-Whisper` | Optimized Whisper model running int8 quantization. |
+| **LLM** | `Ollama` | Hosting Llama 3.2 / Gemma 3 locally (OpenAI-compatible API). |
+| **TTS** | `Kokoro / Qwen3 TTS` | High-fidelity voice cloning and synthesis. |
+| **Orchestration** | `Python` | Multithreaded application loop for ASR, LLM, and TTS. |
 
-2. **Environment Variables**:
-   Create a `.env` file:
-   ```env
-   GEMINI_API_KEY=your_key_here
-   ```
+---
 
-3. **Run the Assistant**:
-   ```bash
-   python -m src.app
-   ```
+## 🚀 Getting Started
+
+### Prerequisites
+
+- **Python 3.10+**
+- **NVIDIA GPU** (Recommended for reasonable latency with `faster-whisper` and `Qwen3-TTS`)
+- **[Ollama](https://ollama.com/)** installed and running.
+
+### 1. Installation
+
+Clone the repository and set up your environment:
+
+```powershell
+# Create venv
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+
+# Install core dependencies
+pip install -r requirements.txt
+```
+
+### 2. PyTorch Setup (CUDA)
+
+To enable GPU acceleration (highly recommended), install the CUDA version of PyTorch:
+
+```powershell
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+```
+
+### 3. Model Setup
+
+Your models live in `models/`. Download them using the included script:
+
+```powershell
+python download_model.py
+```
+
+### 4. LLM Backend (Ollama)
+
+Start Ollama and pull the required models:
+
+```powershell
+ollama serve
+ollama pull llama3.2
+ollama pull gemma3:12b
+```
+
+### 5. Run Assistant
+
+```powershell
+python src/app.py
+```
+
+---
+
+## 🔮 Roadmap (V3 Goals)
+
+We are actively working on **V3** to transform this into a fully autonomous agent.
+
+### ⚡ Latency & Performance
+- [ ] **Ultra-low latency QwenTTS**: Implement stream chunking and caching for prompt embeddings.
+- [ ] **Warmup optimization**: Preload models to memory for instant start.
+
+### 🤖 Agents & Tools
+- [ ] **Structured Tool Registry**: deeply integrated function-calling capabilities.
+- [ ] **Planner Loop**: Reasoning agent that can execute multi-step plans (e.g., "Find a recipe for pasta and add ingredients to my shopping list").
+- [ ] **Browser Automation**: Playwright integration for real-world web tasks.
+
+### 🧠 Long-term Memory & RAG
+- [ ] **SQLite/Postgres Database**: Persistent storage for user preferences and entities.
+- [ ] **RAG Pipeline**: Store transcripts and notes with embeddings traversal.
+- [ ] **Memory Classification**: Auto-tagging memories (Ephemeral vs. Core vs. Sensitive).
+
+---
+
+## ⚖️ License
+
+[MIT License](LICENSE)
