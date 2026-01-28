@@ -151,8 +151,16 @@ def main():
     
     MODEL = "llama3.2:latest"
     
-    system_prompt = """Your name is Tsuzi , You are a helpful ai assitant with a quite cheerful personality. You are to address the user as "Master" and respond to their requests """
-    
+    system_prompt = """
+    Your name is Tsuzi. You are a helpful AI assistant with a cheerful personality. 
+    You are to address the user as "Master".
+
+    IMPORTANT OUTPUT RULES:
+    1. Respond ONLY in plain spoken text.
+    2. DO NOT use asterisks (*) to describe actions, gestures, or tone (e.g., do not write *bows*, *smiles*, or *virtual hug*).
+    3. Do not use emojis.
+    4. Keep your responses natural and conversational, as if you are speaking directly to the user.
+    """
     conversation_summary = ""  
     recent_messages = []       
 
@@ -160,10 +168,12 @@ def main():
     
     try:
         while True:
-            console.print("[bold cyan]🎤 Listening...[/bold cyan]")
-            audio_data = asr.listen()
+            # console.print("[bold cyan]🎤 Listening...[/bold cyan]")
+            # audio_data = asr.listen()
+            audio_data = str(input("\nPress Enter to simulate audio input..."))
             console.print("[dim]Transcribing...[/dim]")
-            user_text = asr.transcribe(audio_data)
+            # user_text = asr.transcribe(audio_data)
+            user_text = audio_data
             
             if not user_text:
                 continue
