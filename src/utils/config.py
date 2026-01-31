@@ -19,8 +19,9 @@ class Config:
     
     # Qwen TTS Settings
     QWEN_TTS_MODEL_PATH = os.path.join(MODELS_DIR, "tts/Qwen3-TTS-12Hz-0.6B-Base")
-    QWEN_TTS_REF_AUDIO = os.path.join(BASE_DIR, "src/audio_output/audio_ref.wav")
-    QWEN_TTS_REF_TEXT = "Work at a cafe called crossroads,it's not too far away from here.If you drop by, i'll pay you back"
+    QWEN_TTS_REF_AUDIO = os.path.join(BASE_DIR, "src/audio_output/audio_ref2.wav")
+    QWEN_TTS_REF_TEXT = "that sound's fun wait are you asking me out to go on a date Alright i'll go on a date with you"
+    # QWEN_TTS_REF_TEXT = "I sence your warmth on my skin , flowing from your touch"
 
     # Audio Settings
     SAMPLE_RATE_REC = 16000

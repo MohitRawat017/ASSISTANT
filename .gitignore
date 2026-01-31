@@ -69,3 +69,6 @@ models/**/*.model
 .cache/
 
 models/
+
+# Wheels
+*.whl
