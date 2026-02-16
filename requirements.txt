@@ -26,55 +26,29 @@ faster-whisper>=1.0.0
 # TTS
 # -------------------------
 qwen-tts
-
 # Optional (only needed if you switch to KokoroTTS)
 kokoro
 
 # -------------------------
-# Model download helper (download_model.py)
+# Router (src/router.py)
 # -------------------------
-huggingface_hub>=0.23.0
 transformers>=4.30.0
+huggingface_hub>=0.23.0
 
 # -------------------------
-# Optional / experiments (not required for V2 core loop)
+# Spotify
+# -------------------------
+# (uses AppOpener + webbrowser, no extra deps)
+
+# -------------------------
+# Optional / experiments
 # -------------------------
 requests>=2.31.0
 beautifulsoup4>=4.12.0
 playwright>=1.40.0
-
-# Older experimental script (testing.py)
 google-genai
-
-# UI / misc experiments
 PySide6
 opencv-python
 Pillow
 websockets
 pyaudio
-# Note: torch, torchvision, torchaudio should be installed separately with CUDA support:
-# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-
-transformers>=4.30.0
-
-# Environment Management
-python-dotenv>=1.0.0
-
-google-genai 
-PySide6 
-opencv-python 
-Pillow 
-numpy 
-websockets 
-pyaudio
-
-# asr 
-faster-whisper
-sounddevice
-numpy
-
-# ---
-playwright
-requests
-beautifulsoup4
-qwen-tts

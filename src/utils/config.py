@@ -30,3 +30,6 @@ class Config:
     
     # GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
     OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+
+    # FunctionGemma model path
+    FUNCTION_GEMMA_PATH = os.path.join(MODELS_DIR, "tool_call/functiongemma")

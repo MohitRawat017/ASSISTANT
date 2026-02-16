@@ -72,3 +72,11 @@ models/
 
 # Wheels
 *.whl
+
+# Reference files (keep locally, don't track)
+src/app.py
+
+# Temporary files
+tmpclaude-*
+nul
+plan.md

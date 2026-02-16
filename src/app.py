@@ -3,8 +3,8 @@ import re
 from openai import OpenAI
 from src.utils.config import Config
 from src.audio_input.asr import ASRHandler
-# from src.audio_output.KokoroTTS import TTSHandler
-from src.audio_output.QwenTTS import TTSHandler
+from src.audio_output.KokoroTTS import TTSHandler
+# from src.audio_output.QwenTTS import TTSHandler
 from rich.console import Console
 from src.tools.web_search import web_search
 from AppOpener import open as app_open, close as app_close

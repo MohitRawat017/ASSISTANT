@@ -34,6 +34,12 @@ def download_model(model_id, cache_dir, model_type):
                 local_dir=cache_dir,
                 local_dir_use_symlinks=False
             )
+        elif model_type == "tool_call":
+            snapshot_download(
+                repo_id=model_id,
+                local_dir=cache_dir,
+                local_dir_use_symlinks=False
+            )
         else:
             raise ValueError(f"Unknown model type: {model_type}")
             
@@ -81,6 +87,10 @@ def main():
             # "id": "Qwen/Qwen3-TTS-12Hz-0.6B-Base",
             "id": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
             "type": "tts",
+        },
+        {
+            "id": "nlouis/pocket-ai-router",
+            "type": "tool_call",
         }
     ]
     
