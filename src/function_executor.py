@@ -131,7 +131,7 @@ class FunctionExecutor:
     # ── Alarm ──────────────────────────────────────────────────────────
 
     def _set_alarm(self, params: Dict) -> Dict:
-        """Set an alarm (persisted in SQLite)."""
+        """Set an alarm (persisted in SQLite) and register a Windows Scheduled Task."""
         time_str = params.get("time", "")
         label = params.get("label", "Alarm")
 
@@ -142,6 +142,16 @@ class FunctionExecutor:
         alarm_id = self.alarm_manager.add_alarm(normalized, label)
 
         if alarm_id:
+            # Register a Windows Scheduled Task so the reminder fires
+            # even if the assistant is closed.
+            try:
+                from src.scheduler_windows import WindowsScheduler
+                task_name = WindowsScheduler.register_alarm(alarm_id, normalized, label)
+                if task_name:
+                    self.alarm_manager.set_scheduled_task(alarm_id, task_name)
+            except Exception as e:
+                print(f"[FunctionExecutor] Scheduler registration failed: {e}")
+
             return {
                 "success": True,
                 "message": f"Alarm set for {normalized}" + (f" ({label})" if label != "Alarm" else ""),
@@ -246,7 +256,7 @@ class FunctionExecutor:
             return {"success": False, "message": "No search query provided", "data": None}
 
         try:
-            from duckduckgo_search import DDGS
+            from ddgs import DDGS
             with DDGS() as ddgs:
                 results = list(ddgs.text(query, max_results=5))
 

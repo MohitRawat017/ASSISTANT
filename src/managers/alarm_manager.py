@@ -12,10 +12,12 @@ class AlarmManager:
 
     Database: data/alarms.db
     Table: alarms
-        - id       TEXT PRIMARY KEY   (UUID)
-        - time     TEXT NOT NULL      (HH:MM format, e.g. "07:00")
-        - label    TEXT               (optional description)
-        - enabled  BOOLEAN DEFAULT 1  (1 = active, 0 = disabled)
+        - id                  TEXT PRIMARY KEY   (UUID)
+        - time                TEXT NOT NULL      (HH:MM format, e.g. "07:00")
+        - label               TEXT               (optional description)
+        - enabled             BOOLEAN DEFAULT 1  (1 = active, 0 = disabled)
+        - notified            BOOLEAN DEFAULT 0  (1 = reminder sent)
+        - scheduled_task_name TEXT               (Windows Task Scheduler task name)
     """
 
     def __init__(self, db_path: str = None):
@@ -32,10 +34,24 @@ class AlarmManager:
                     id TEXT PRIMARY KEY,
                     time TEXT NOT NULL,
                     label TEXT,
-                    enabled BOOLEAN DEFAULT 1
+                    enabled BOOLEAN DEFAULT 1,
+                    notified BOOLEAN DEFAULT 0,
+                    scheduled_task_name TEXT
                 )
             """)
             conn.commit()
+            self._migrate(conn)
+
+    def _migrate(self, conn: sqlite3.Connection):
+        """Add new columns to existing databases that lack them."""
+        cursor = conn.execute("PRAGMA table_info(alarms)")
+        existing_cols = {row[1] for row in cursor.fetchall()}
+
+        if "notified" not in existing_cols:
+            conn.execute("ALTER TABLE alarms ADD COLUMN notified BOOLEAN DEFAULT 0")
+        if "scheduled_task_name" not in existing_cols:
+            conn.execute("ALTER TABLE alarms ADD COLUMN scheduled_task_name TEXT")
+        conn.commit()
 
     def add_alarm(self, time: str, label: str = "Alarm") -> Optional[str]:
         """Add a new alarm. Returns the alarm ID or None on failure."""
@@ -63,6 +79,19 @@ class AlarmManager:
             print(f"[AlarmManager] Error loading alarms: {e}")
             return []
 
+    def get_alarm_by_id(self, alarm_id: str) -> Optional[Dict]:
+        """Retrieve a single alarm by ID."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                row = conn.execute(
+                    "SELECT * FROM alarms WHERE id = ?", (alarm_id,)
+                ).fetchone()
+                return dict(row) if row else None
+        except Exception as e:
+            print(f"[AlarmManager] Error fetching alarm: {e}")
+            return None
+
     def delete_alarm(self, alarm_id: str):
         """Delete an alarm by ID."""
         try:
@@ -83,3 +112,27 @@ class AlarmManager:
                 conn.commit()
         except Exception as e:
             print(f"[AlarmManager] Error toggling alarm: {e}")
+
+    def mark_notified(self, alarm_id: str):
+        """Mark an alarm as notified (reminder sent)."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute(
+                    "UPDATE alarms SET notified = 1 WHERE id = ?",
+                    (alarm_id,)
+                )
+                conn.commit()
+        except Exception as e:
+            print(f"[AlarmManager] Error marking alarm notified: {e}")
+
+    def set_scheduled_task(self, alarm_id: str, task_name: str):
+        """Store the Windows Scheduled Task name for an alarm."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute(
+                    "UPDATE alarms SET scheduled_task_name = ? WHERE id = ?",
+                    (task_name, alarm_id)
+                )
+                conn.commit()
+        except Exception as e:
+            print(f"[AlarmManager] Error setting scheduled task: {e}")
