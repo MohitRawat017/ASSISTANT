@@ -60,7 +60,7 @@ class WindowsScheduler:
                 [
                     "schtasks", "/create",
                     "/tn", task_name,
-                    "/tr", f'"{bat_path}"',
+                    "/tr", bat_path,
                     "/sc", "once",
                     "/st", schedule_time,
                     "/sd", schedule_date,
