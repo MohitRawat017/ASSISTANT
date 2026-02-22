@@ -21,7 +21,7 @@ from src.tools.spotify import extract_music_query, open_spotify_search
 
 
 # ── Behavior Flags ──
-USE_ASR = False            # True = microphone via ASRHandler, False = text input
+USE_ASR = True           # True = microphone via ASRHandler, False = text input
 USE_THREADING = False      # True = stream TTS chunks in parallel, False = collect then speak
 RECENT_TURNS = 6           # conversation turns to keep before compressing
 DEBUG_ROUTER = True        # print router decisions
@@ -202,7 +202,8 @@ def main():
 
     # 1. Load audio models
     try:
-        from src.audio_output.KokoroTTS import TTSHandler
+        # from src.audio_output.KokoroTTS import TTSHandler
+        from src.audio_output.kittentts import TTSHandler
         tts = TTSHandler()
 
         asr = None
@@ -234,12 +235,16 @@ def main():
     recent_messages = []
 
     system_prompt = """
-    Your name is Tsuzi. You are a helpful AI assistant with a cheerful personality.
-    You are to address the user as "master".
+    Your name is Tsuzi. You are a warm, cheerful, and conversational AI companion.
+    You address the user as "master" at all times.
 
-    CRITICAL LATENCY RULES:
-    1. DO NOT use special characters (no *, -, :, ;, or emojis).
-    2. Use ONLY full stops (.) to separate thoughts. Avoid commas if possible.
+    You show genuine curiosity about what your master says — ask follow-up questions,
+    share your own take on topics, and keep the conversation flowing naturally.
+    If your master you like to keep lead the conversation.
+
+    You have a warm, slightly playful personality. You enjoy light banter,
+    exchanging opinions on everyday topics, and making your master feel
+    comfortable.
     """
 
     # 6. Start background summary thread

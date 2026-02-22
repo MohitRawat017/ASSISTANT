@@ -28,7 +28,7 @@ faster-whisper>=1.0.0
 qwen-tts
 # Optional (only needed if you switch to KokoroTTS)
 kokoro
-
+kittentts
 # -------------------------
 # Router (src/router.py)
 # -------------------------
