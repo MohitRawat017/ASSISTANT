@@ -1,3 +1,5 @@
+"""KittenTTS audio output handler."""
+
 import os
 import re
 import threading
@@ -20,8 +22,8 @@ if os.name == 'nt':
 from kittentts import KittenTTS
 
 KITTEN_MODEL_ID = "KittenML/kitten-tts-mini-0.8"
-KITTEN_VOICE    = "Rosie"
-KITTEN_SR       = 24000
+KITTEN_VOICE = "Rosie"
+KITTEN_SR = 24000
 
 
 class TTSHandler:
@@ -35,15 +37,17 @@ class TTSHandler:
         print(f"Loading KittenTTS model ({KITTEN_MODEL_ID})...")
         self.model = KittenTTS(KITTEN_MODEL_ID)
         self.voice = KITTEN_VOICE
-        self._playback_lock = threading.Lock()
-        self._stop_event = threading.Event()
+        self.playback_lock = threading.Lock()
+        self.stop_event = threading.Event()
         print("KittenTTS Ready.")
 
-    def _clean_text(self, text: str) -> str:
+    def clean_text(self, text: str) -> str:
+        """Clean text for TTS synthesis."""
         text = text.replace("*", "").replace("_", "").replace("`", "")
         return re.sub(r"\n+", " ", text).strip()
 
-    def _synthesise(self, text: str) -> np.ndarray:
+    def synthesise(self, text: str) -> np.ndarray:
+        """Synthesize text to audio."""
         audio = self.model.generate(text, voice=self.voice)
         if not isinstance(audio, np.ndarray):
             audio = np.array(audio, dtype=np.float32)
@@ -51,26 +55,29 @@ class TTSHandler:
             audio = audio.astype(np.float32)
         return audio
 
-    def _play(self, audio: np.ndarray) -> None:
-        with self._playback_lock:
-            self._stop_event.clear()
+    def play(self, audio: np.ndarray) -> None:
+        """Play audio with stop support."""
+        with self.playback_lock:
+            self.stop_event.clear()
             sd.play(audio, samplerate=KITTEN_SR)
             while sd.get_stream().active:
-                if self._stop_event.is_set():
+                if self.stop_event.is_set():
                     sd.stop()
                     break
                 threading.Event().wait(0.05)
 
     def speak(self, text: str) -> threading.Thread:
-        clean = self._clean_text(text)
+        """Speak text asynchronously."""
+        clean = self.clean_text(text)
         if not clean:
             return
-        t = threading.Thread(target=lambda: self._play(self._synthesise(clean)), daemon=True)
+        t = threading.Thread(target=lambda: self.play(self.synthesise(clean)), daemon=True)
         t.start()
         return t
 
     def stop(self) -> None:
-        self._stop_event.set()
+        """Stop playback."""
+        self.stop_event.set()
         sd.stop()
 
 

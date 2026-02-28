@@ -80,3 +80,13 @@ src/app.py
 tmpclaude-*
 nul
 plan.md
+PHASE1_LEARNING.md
+
+# Auto-generated data & artifacts
+data/*.bat
+data/*.png
+data/memory/
+
+# Test output
+tests/test_results/
+*.pyerrors.txt

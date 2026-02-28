@@ -1,9 +1,10 @@
+"""News manager - fetches and curates news via DuckDuckGo + optional AI."""
+
 import json
 import requests
 import datetime
 from duckduckgo_search import DDGS
 
-# Ollama settings (matches app.py)
 OLLAMA_API_URL = "http://localhost:11434/api"
 CURATION_MODEL = "gemma3:12b"
 
@@ -17,13 +18,10 @@ class NewsManager:
         self.cache_duration = datetime.timedelta(minutes=15)
 
     def get_briefing(self, status_callback=None, use_ai: bool = True) -> list:
-        """
-        Get a curated briefing.
-        Fetches 'top' and 'technology' news, then optionally asks AI to pick the best ones.
-        """
+        """Get a curated briefing. Fetches news and optionally asks AI to pick best ones."""
         if status_callback: status_callback("Checking local cache...")
         cache_key = "briefing_ai" if use_ai else "briefing_raw"
-        cached = self._get_from_cache(cache_key)
+        cached = self.get_from_cache(cache_key)
         if cached:
             return cached
 
@@ -50,10 +48,10 @@ class NewsManager:
         curated_news = None
         if use_ai:
             if status_callback: status_callback("AI is reading and curating stories...")
-            curated_news = self._curate_with_ai(raw_news)
+            curated_news = self.curate_with_ai(raw_news)
 
         if not curated_news:
-            curated_news = self._format_raw_fallback(raw_news)
+            curated_news = self.format_raw_fallback(raw_news)
 
         self.cache[cache_key] = {
             "timestamp": datetime.datetime.now(),
@@ -62,14 +60,15 @@ class NewsManager:
 
         return curated_news
 
-    def _get_from_cache(self, key: str):
+    def get_from_cache(self, key: str):
+        """Get cached data if still valid."""
         if key in self.cache:
             entry = self.cache[key]
             if datetime.datetime.now() - entry["timestamp"] < self.cache_duration:
                 return entry["data"]
         return None
 
-    def _format_raw_fallback(self, raw_news):
+    def format_raw_fallback(self, raw_news):
         """Fallback formatting if AI fails."""
         formatted = []
         seen_titles = set()
@@ -89,7 +88,7 @@ class NewsManager:
             })
         return formatted[:8]
 
-    def _curate_with_ai(self, raw_news):
+    def curate_with_ai(self, raw_news):
         """Send raw news to Ollama LLM to select and format."""
 
         news_input = [

@@ -1,31 +1,24 @@
+"""Task manager using SQLite."""
+
 import sqlite3
 import uuid
 import os
-from typing import List, Dict, Optional
 from src.utils.config import Config
 
 DATA_DIR = os.path.join(Config.BASE_DIR, "data")
 
 
 class TaskManager:
-    """Manages tasks using a local SQLite database.
-
-    Database: data/tasks.db
-    Table: tasks
-        - id          TEXT PRIMARY KEY   (UUID)
-        - text        TEXT NOT NULL      (task description)
-        - completed   BOOLEAN DEFAULT 0  (0 = pending, 1 = done)
-        - created_at  TIMESTAMP          (auto-set on insert)
-    """
-
+    """Manages tasks in SQLite database."""
+    
     def __init__(self, db_path: str = None):
         self.db_path = db_path or os.path.join(DATA_DIR, "tasks.db")
-        self._init_db()
-
-    def _init_db(self):
-        """Create the data directory and tasks table if they don't exist."""
+        self.init_db()
+    
+    def init_db(self):
+        """Create tasks table if needed."""
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
-
+        
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS tasks (
@@ -36,9 +29,9 @@ class TaskManager:
                 )
             """)
             conn.commit()
-
-    def get_tasks(self) -> List[Dict]:
-        """Retrieve all tasks ordered by creation time."""
+    
+    def get_tasks(self):
+        """Get all tasks ordered by creation time."""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 conn.row_factory = sqlite3.Row
@@ -47,9 +40,9 @@ class TaskManager:
         except Exception as e:
             print(f"[TaskManager] Error loading tasks: {e}")
             return []
-
-    def add_task(self, text: str) -> Optional[Dict]:
-        """Add a new task. Returns the task dict or None on failure."""
+    
+    def add_task(self, text: str):
+        """Add a new task. Returns task dict or None."""
         task_id = str(uuid.uuid4())
         try:
             with sqlite3.connect(self.db_path) as conn:
@@ -62,16 +55,16 @@ class TaskManager:
         except Exception as e:
             print(f"[TaskManager] Error adding task: {e}")
             return None
-
+    
     def delete_task(self, task_id: str):
-        """Delete a task by ID."""
+        """Delete a task."""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
                 conn.commit()
         except Exception as e:
             print(f"[TaskManager] Error deleting task: {e}")
-
+    
     def toggle_task(self, task_id: str, completed: bool):
         """Update task completion status."""
         try:

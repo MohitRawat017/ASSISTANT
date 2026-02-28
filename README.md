@@ -2,10 +2,9 @@
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=for-the-badge&logo=python&logoColor=white)
 ![Status](https://img.shields.io/badge/Status-Version%202.0-green?style=for-the-badge)
-![Ollama](https://img.shields.io/badge/Backend-Ollama-orange?style=for-the-badge)
-![Torch](https://img.shields.io/badge/PyTorch-CUDA%20Enabled-red?style=for-the-badge&logo=pytorch)
+![Backend](https://img.shields.io/badge/Backend-LangGraph%20%2B%20Groq-orange?style=for-the-badge)
 
-A powerful, local-first voice assistant with intelligent function routing. Uses a fine-tuned FunctionGemma model to route user requests to the right backend managers—all running entirely on your machine.
+A powerful, local-first voice assistant (Tsuzi) with intelligent function routing via LangGraph. Uses a ReAct Agent powered by Llama 3.x (Groq / OpenRouter) to seamlessly answer queries and invoke tools on your machine.
 
 ---
 
@@ -17,29 +16,29 @@ graph TD
         User([User]) -->|Voice/Text| Input[Input Handler]
     end
 
-    subgraph "Processing Core (Local)"
+    subgraph "Processing Core"
         Input -->|Audio Buffer| ASR[Faster-Whisper ASR]
-        ASR -->|Text| Router[FunctionGemma Router]
+        ASR -->|Text| Router[LangGraph ReAct Agent]
         Input -->|Text| Router
 
-        Router -->|Action Functions| Executor[Function Executor]
-        Router -->|Passthrough| LLM[Ollama - Llama 3.2]
-
-        Executor --> Managers[Managers Layer]
-        Managers --> DB[(SQLite DBs)]
-        Managers --> API[External APIs]
-
-        LLM -->|Streamed Response| TTS[Qwen3 TTS / Kokoro]
-        Executor -->|Result| TTS
+        Router -->|Tool Use| ToolGroup[Dynamic Tool Selector]
+        Router -->|Conversation| Memory[(SQLite Checkpointer)]
+        
+        ToolGroup --> Productivity[Productivity]
+        ToolGroup --> System[System]
+        ToolGroup --> Research[Research]
+        ToolGroup --> Comm[Communication]
+        
+        Router -->|Response Text| TTS[Kokoro / KittenTTS]
     end
 
-    subgraph "Managers (6 total)"
-        Managers --> TaskMgr[TaskManager]
-        Managers --> AlarmMgr[AlarmManager]
-        Managers --> TimerMgr[TimerManager]
-        Managers --> CalMgr[CalendarManager]
-        Managers --> WeatherMgr[WeatherManager]
-        Managers --> NewsMgr[NewsManager]
+    subgraph "Managers & Services"
+        Productivity --> TaskMgr[TaskManager]
+        Productivity --> AlarmMgr[AlarmManager]
+        Productivity --> CalMgr[CalendarManager]
+        Research --> Web[Web/ArXiv/StackOverflow]
+        Comm --> Email[Email Services]
+        System --> OS[OS Commands]
     end
 
     subgraph "Output"
@@ -47,45 +46,37 @@ graph TD
     end
 
     style Router fill:#f9f,stroke:#333,stroke-width:2px
-    style Executor fill:#bbf,stroke:#333,stroke-width:2px
-    style LLM fill:#bfb,stroke:#333,stroke-width:2px
+    style ToolGroup fill:#bbf,stroke:#333,stroke-width:2px
 ```
 
 ---
 
 ## ✨ Key Features
 
-### 🎯 Intelligent Routing (FunctionGemma)
-- **Model-based classification**: Every request is routed through a fine-tuned Gemma model that decides whether to:
-  - Execute an action (timer, alarm, calendar, task, search)
-  - Query system info (aggregates all manager states)
-  - Pass through to LLM for conversation (thinking/nonthinking modes)
-- **Fast-path shortcuts**: App launching and Spotify bypass the model for instant response
+### 🎯 Intelligent Routing (ReAct Agent)
+- **LangGraph Architecture**: Tsuzi uses a robust LangGraph ReAct agent loop for multi-step reasoning and tool execution.
+- **Dynamic Tool Selection**: A local keyword heuristic pre-filters tools (Productivity, System, Research, Communication) before sending them to the LLM to save tokens and improve latency.
+- **Short-term Memory**: Powered by LangGraph's `SqliteSaver` to remember conversation state (thread checkpointer).
 
-### 🗂️ Manager Architecture
-Six independent managers handle different domains:
-- **TaskManager** → SQLite (`data/tasks.db`) - To-do list management
-- **AlarmManager** → SQLite (`data/alarms.db`) - Persistent alarms
-- **TimerManager** → In-memory - Countdown timers (ephemeral)
-- **CalendarManager** → SQLite (`data/calendar.db`) - Event scheduling
-- **WeatherManager** → Open-Meteo API - Current weather + forecast
-- **NewsManager** → DuckDuckGo + optional Ollama curation - Headline aggregation
+### 🗂️ Tool Categories
+Tools are grouped modularly to provide broad capability:
+- **Productivity**: Set alarms, logic timers, manage SQLite tasks list, create calendar events, check system info.
+- **System**: Launch local applications, run terminal commands (OS-level).
+- **Research**: DuckDuckGo web search, ArXiv paper search, StackOverflow search.
+- **Communication**: Send and read emails.
 
 ### ⚡ Performance Features
-- **Streaming responses**: LLM tokens → TTS in real-time (optional threaded mode)
-- **Background summarization**: Conversation history compressed via separate thread
-- **Lazy initialization**: Managers load independently; one failure doesn't crash everything
+- **Streaming audio**: High quality TTS generated using Kokoro or KittenTTS.
+- **Stateful Threading**: Context-aware interactions across a single session using LangGraph checkpoints.
+- **ASR Fallback**: Revert to fast text-based input if microphone is unavailable.
 
-### 🛠️ Integrated Actions
+### 🛠️ Example Interactions
 ```
-"Set a timer for 10 minutes"        → TimerManager
-"Wake me up at 7am"                 → AlarmManager
-"Schedule meeting tomorrow at 3pm"  → CalendarManager
-"Add buy groceries to my tasks"    → TaskManager
-"Search for Italian recipes"        → Web search (DuckDuckGo)
-"What's on my schedule?"            → get_system_info (all managers)
-"Explain quantum computing"         → LLM passthrough (thinking mode)
-"Hello there!"                      → LLM passthrough (nonthinking mode)
+"Set a timer for 10 minutes"              → Productivity (set_timer)
+"Wake me up at 7am"                       → Productivity (set_alarm)
+"Schedule meeting tomorrow at 3pm"        → Productivity (create_calendar_event)
+"Find recent papers on quantum computing" → Research (search_arxiv)
+"Open Spotify"                            → System (open_app)
 ```
 
 ---
@@ -94,12 +85,11 @@ Six independent managers handle different domains:
 
 | Component | Technology | Description |
 |-----------|------------|-------------|
-| **ASR** | `Faster-Whisper` | Int8-quantized Whisper for low-latency transcription |
-| **Router** | `FunctionGemma` | Fine-tuned Gemma 2B for function classification |
-| **LLM** | `Ollama` (Llama 3.2) | Local inference with OpenAI-compatible API |
-| **TTS** | `Kokoro / Qwen3 TTS` | Voice synthesis with optional voice cloning |
-| **Storage** | `SQLite` | Lightweight persistence for tasks/alarms/calendar |
-| **APIs** | DuckDuckGo, Open-Meteo | Web search and weather data |
+| **ASR** | `Faster-Whisper` | Fast local transcription |
+| **Agent** | `LangGraph` | Stateful ReAct Agent for complex routing |
+| **LLM** | `Groq / OpenRouter` | Llama-3.x inference for tool calling |
+| **TTS** | `Kokoro / KittenTTS` | Fast, local voice synthesis |
+| **Memory** | `SQLite / LangGraph` | Checkpointer for conversation state |
 
 ---
 
@@ -108,8 +98,9 @@ Six independent managers handle different domains:
 ### Prerequisites
 
 - **Python 3.10+**
-- **NVIDIA GPU** (Recommended for `faster-whisper` and `FunctionGemma`)
-- **[Ollama](https://ollama.com/)** installed and running
+- API Keys: 
+  - `GROQ_API_KEY` (or `OPENROUTER_API_KEY`) for reasoning
+  - `EMAIL_USER` / `EMAIL_PASS` (if using communication tools)
 
 ### 1. Installation
 
@@ -122,47 +113,33 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-### 2. PyTorch Setup (CUDA)
+### 2. Environment Setup
 
-```powershell
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+Create a `.env` file in the root directory:
+```env
+GROQ_API_KEY=your_groq_key
+OPENROUTER_API_KEY=your_openrouter_key
+EMAIL_USER=your_email@gmail.com
+EMAIL_PASS=your_app_password
 ```
 
-### 3. Model Setup
+### 3. Model Setup (ASR/TTS)
 
-Download ASR and TTS models:
+Download necessary local models:
 
 ```powershell
 python download_model.py
 ```
 
-Place your FunctionGemma model in:
-```
-models/tool_call/functiongemma/
-  ├── model.safetensors
-  ├── config.json
-  ├── tokenizer.json
-  └── ...
-```
-
-### 4. LLM Backend (Ollama)
-
-```powershell
-ollama serve
-ollama pull llama3.2
-ollama pull gemma3:12b
-```
-
-### 5. Run Assistant
+### 4. Run Assistant
 
 ```powershell
 python -m src.main
 ```
 
 **Configuration flags** (edit `src/main.py`):
-- `USE_ASR = False` → Set to `True` to use microphone input instead of text
-- `USE_THREADING = False` → Set to `True` for parallel TTS streaming
-- `DEBUG_ROUTER = True` → Print routing decisions to console
+- `USE_ASR = True` → Use microphone (set `False` for text input mode)
+- `DEBUG_MODE = True` → Print routing decisions, tokens, and timing
 
 ---
 
@@ -170,58 +147,24 @@ python -m src.main
 
 ```
 src/
-├── main.py                    # Main entry point (NEW)
-├── app.py                     # Legacy reference (not tracked in git)
-├── router.py                  # FunctionGemma routing engine
-├── function_executor.py       # Dispatches routed functions to managers
-│
-├── managers/                  # Data management layer
-│   ├── __init__.py
-│   ├── task_manager.py        # To-do list (SQLite)
-│   ├── alarm_manager.py       # Persistent alarms (SQLite)
-│   ├── timer_manager.py       # In-memory countdown timers
-│   ├── calendar_manager.py    # Event scheduling (SQLite)
-│   ├── weather_manager.py     # Weather API integration
-│   └── news_manager.py        # News aggregation + AI curation
-│
+├── main.py                    # Main pipeline
+├── graph/                     # LangGraph Agent definition
+│   └── agent.py               # ReAct checkpointer and logic
+├── tools/                     # Action tools and groups
+│   ├── tool_group.py          # Dynamic tool loader
+│   └── wrapped_tools.py       # Langchain tool wrappers
+├── managers/                  # Data persistence and domain logic
+│   ├── task_manager.py
+│   ├── alarm_manager.py
+│   └── calendar_manager.py
 ├── audio_input/
 │   └── asr.py                 # Faster-Whisper handler
-│
 ├── audio_output/
-│   ├── KokoroTTS.py           # Kokoro TTS engine
-│   └── QwenTTS.py             # Qwen3 TTS engine (alternative)
-│
-├── tools/
-│   ├── web_search.py          # DuckDuckGo search wrapper
-│   └── spotify.py             # Spotify integration
-│
+│   ├── KokoroTTS.py           # Kokoro integration
+│   └── kittentts.py           # Kitten TTS integration
 └── utils/
-    └── config.py              # Centralized configuration
-
-data/                           # Auto-created by managers
-├── tasks.db
-├── alarms.db
-└── calendar.db
+    └── config.py              # Environment configuration
 ```
-
----
-
-## 🔮 Roadmap (V3 Goals)
-
-### ⚡ Latency & Performance
-- [ ] **Ultra-low latency TTS**: Stream chunking + prompt embedding caching
-- [ ] **Model warmup**: Preload all models at startup for instant first response
-- [ ] **torch.compile()**: Enable PyTorch 2.0 compilation for router speedup
-
-### 🤖 Agents & Tools
-- [ ] **Planner agent**: Multi-step reasoning ("Find recipe → add ingredients to shopping list")
-- [ ] **Browser automation**: Playwright integration for web tasks
-- [ ] **Extended tools**: Email, calendar sync, smart home control
-
-### 🧠 Long-term Memory & RAG
-- [ ] **Vector database**: ChromaDB/Qdrant for conversation history retrieval
-- [ ] **Entity tracking**: Persistent memory of people, places, preferences
-- [ ] **Memory classification**: Auto-tag ephemeral vs. core memories
 
 ---
 

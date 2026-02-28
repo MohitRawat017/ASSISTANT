@@ -1,10 +1,4 @@
-"""
-Timer Manager - In-memory countdown timers (not persisted to disk).
-
-Unlike alarms (which persist in SQLite and survive restarts),
-timers are ephemeral countdowns that only live while the app is running.
-When a timer expires, an email notification is sent via EmailService.
-"""
+"""Timer manager for countdown timers (in-memory, not persisted)."""
 
 from dataclasses import dataclass
 from typing import Dict, List
@@ -15,7 +9,7 @@ import time
 
 @dataclass
 class ActiveTimer:
-    """Represents a single countdown timer."""
+    """A single countdown timer."""
     label: str
     duration_seconds: int
     start_time: float
@@ -40,7 +34,6 @@ class ActiveTimer:
         return f"{secs}s"
 
     def format_duration(self) -> str:
-        """Format the original duration for display."""
         mins, secs = divmod(self.duration_seconds, 60)
         hours, mins = divmod(mins, 60)
         if hours:
@@ -55,34 +48,34 @@ class TimerManager:
 
     def __init__(self):
         self.active_timers: Dict[str, ActiveTimer] = {}
-        self._lock = threading.Lock()
+        self.lock = threading.Lock()
 
     def add_timer(self, label: str, duration_seconds: int) -> ActiveTimer:
-        """Create and store a new timer, and schedule an email on expiry."""
+        """Create and store a new timer, schedule email on expiry."""
         timer = ActiveTimer(
             label=label,
             duration_seconds=duration_seconds,
             start_time=time.time()
         )
-        with self._lock:
+        with self.lock:
             self.active_timers[label] = timer
 
-        # Fire email notification when timer expires
+        # Start thread to send email on expiry
         t = threading.Thread(
-            target=self._wait_and_notify,
+            target=self.wait_and_notify,
             args=(label, duration_seconds),
             daemon=True,
         )
         t.start()
-
         return timer
 
-    def _wait_and_notify(self, label: str, duration_seconds: int):
-        """Sleep until the timer expires, then send an email."""
-        time.sleep(duration_seconds)
+    def wait_and_notify(self, label: str, duration_seconds: int):
+        """Wait for timer to expire, then send email."""
+        # Only sleep if duration is positive
+        if duration_seconds > 0:
+            time.sleep(duration_seconds)
 
-        # Check the timer wasn't cancelled while we slept
-        with self._lock:
+        with self.lock:
             timer = self.active_timers.get(label)
             if timer is None:
                 return  # cancelled
@@ -92,28 +85,24 @@ class TimerManager:
         recipient = os.environ.get("REMINDER_EMAIL", sender)
 
         if not sender or not password:
-            print(f"[TimerManager] Timer '{label}' expired but Gmail credentials not configured")
+            print(f"[TimerManager] Timer '{label}' expired but Gmail not configured")
             return
 
         try:
             from src.services.email_service import EmailService
-
             svc = EmailService(sender, password, recipient)
             subject = f"Timer Expired: {label}"
-            body = (
-                f"Your timer '{label}' ({timer.format_duration()}) has expired.\n\n"
-                f"Time now: {time.strftime('%H:%M:%S')}"
-            )
+            body = f"Your timer '{label}' ({timer.format_duration()}) has expired.\n\nTime now: {time.strftime('%H:%M:%S')}"
             if svc.send_reminder(subject, body):
-                print(f"[TimerManager] Email sent for expired timer '{label}'")
+                print(f"[TimerManager] Email sent for timer '{label}'")
             else:
                 print(f"[TimerManager] Failed to send email for timer '{label}'")
         except Exception as e:
             print(f"[TimerManager] Error sending timer email: {e}")
 
     def get_active_timers(self) -> List[Dict]:
-        """Return all non-expired timers, cleaning up expired ones."""
-        with self._lock:
+        """Return all non-expired timers, clean up expired ones."""
+        with self.lock:
             expired = [k for k, t in self.active_timers.items() if t.is_expired]
             for k in expired:
                 del self.active_timers[k]
@@ -124,8 +113,8 @@ class TimerManager:
             ]
 
     def cancel_timer(self, label: str) -> bool:
-        """Cancel a timer by label. Returns True if found."""
-        with self._lock:
+        """Cancel a timer by label."""
+        with self.lock:
             if label in self.active_timers:
                 del self.active_timers[label]
                 return True

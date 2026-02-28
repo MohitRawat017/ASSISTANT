@@ -1,3 +1,5 @@
+"""Qwen TTS audio output handler."""
+
 import re
 import torch
 import sounddevice as sd
@@ -50,7 +52,7 @@ class TTSHandler:
         self.stop_signal = False
         self.is_speaking = False
         
-        self.play_thread = threading.Thread(target=self._audio_player, daemon=True)
+        self.play_thread = threading.Thread(target=self.audio_player, daemon=True)
         self.play_thread.start()
 
         print("Warming up GPU...")
@@ -58,7 +60,8 @@ class TTSHandler:
             self.model.generate_voice_clone(text="Ready.", language="English", voice_clone_prompt=self.prompt_item)
         print("Qwen TTS Ready.")
 
-    def _audio_player(self):
+    def audio_player(self):
+        """Background thread that plays audio chunks."""
         while True:
             if self.is_speaking and self.audio_queue.qsize() < 2:
                 time.sleep(0.1) 
@@ -73,34 +76,30 @@ class TTSHandler:
             sd.wait()
 
     def chunk_text(self, text, max_words=8):
-            """
-            LATENCY TUNING:
-            max_words (int): The Hyperparameter.
-            - Low (4-6): Lowest latency, but might cut mid-sentence (robotic).
-            - High (10-15): Better flow, but higher risk of buffer underrun (lag).
-            """
-            words = text.split()
-            current_chunk = []
+        """Split text into chunks for streaming. Lower max_words = lower latency."""
+        words = text.split()
+        current_chunk = []
+        
+        for word in words:
+            current_chunk.append(word)
             
-            for word in words:
-                current_chunk.append(word)
-                
-                if len(current_chunk) >= max_words or word.endswith('.'):
-                    yield " ".join(current_chunk)
-                    current_chunk = []
-            
-            if current_chunk:
+            if len(current_chunk) >= max_words or word.endswith('.'):
                 yield " ".join(current_chunk)
+                current_chunk = []
+        
+        if current_chunk:
+            yield " ".join(current_chunk)
 
     def speak(self, text):
-        clean_text = self._clean_text(text)
-        if not clean_text: return
+        """Speak text using streaming synthesis."""
+        clean = self.clean_text(text)
+        if not clean: return
 
         self.stop_signal = False
         self.is_speaking = True
 
         max_words = 12
-        chunks = list(self.chunk_text(clean_text, max_words=max_words)) 
+        chunks = list(self.chunk_text(clean, max_words=max_words)) 
         
         print(f"Split into {len(chunks)} chunks (Target: {max_words} words/chunk).")
 
@@ -122,14 +121,16 @@ class TTSHandler:
                 silence = np.zeros(int(sr * 0.05)) 
                 final_audio = np.concatenate((wavs[0], silence))
                 self.audio_queue.put((final_audio, sr))
-        self.is_speaking = False # Done adding chunks
+        self.is_speaking = False
 
-    def _clean_text(self, text):
+    def clean_text(self, text):
+        """Clean text for TTS synthesis."""
         text = text.replace("*", "").replace("_", "").replace("`", "")
         text = re.sub(r'\*.*?\*', '', text)
         return re.sub(r"\n+", " ", text).strip()
 
     def stop(self):
+        """Stop playback."""
         self.stop_signal = True
         with self.audio_queue.mutex:
             self.audio_queue.queue.clear()

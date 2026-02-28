@@ -1,3 +1,5 @@
+"""Kokoro TTS audio output handler."""
+
 import re
 import sounddevice as sd
 from kokoro import KPipeline, KModel
@@ -20,19 +22,21 @@ class TTSHandler:
         )
         print("Kokoro TTS Ready.")
 
-    def _clean_text(self, text: str) -> str:
+    def clean_text(self, text: str) -> str:
+        """Clean text for TTS synthesis."""
         text = text.replace("*", "").replace("_", "").replace("`", "")
         return re.sub(r"\n+", " ", text).strip()
 
     def speak(self, text):
-        clean_text = self._clean_text(text)
-        if not clean_text:
+        """Speak text using Kokoro TTS."""
+        clean = self.clean_text(text)
+        if not clean:
             return
 
-        generator = self.pipeline(clean_text, voice='af_heart', speed=1)
+        generator = self.pipeline(clean, voice='af_heart', speed=1)
         
         for result in generator:
             if result.audio is not None:
                 audio = result.audio.cpu().numpy()
                 sd.play(audio, samplerate=Config.SAMPLE_RATE_PLAY)
-                sd.wait() # Block until this sentence finishes
+                sd.wait()

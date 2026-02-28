@@ -34,6 +34,13 @@ class Config:
     # FunctionGemma model path
     FUNCTION_GEMMA_PATH = os.path.join(MODELS_DIR, "tool_call/functiongemma")
 
+    # Groq API (Tier 2 LangGraph agent)
+    GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+
+
+    # Memory storage directory
+    MEMORY_DIR = os.path.join(BASE_DIR, "data", "memory")
+
     # Email / Reminder settings (set these in .env)
     GMAIL_ADDRESS = os.getenv("GMAIL_ADDRESS", "")
     GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "")

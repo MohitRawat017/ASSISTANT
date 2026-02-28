@@ -30,10 +30,18 @@ qwen-tts
 kokoro
 kittentts
 # -------------------------
-# Router (src/router.py)
+# Router (src/router.py) — Tier 1 only
 # -------------------------
 transformers>=4.30.0
 huggingface_hub>=0.23.0
+
+# -------------------------
+# LangGraph Agent (Tier 2)
+# -------------------------
+langgraph
+langchain-core
+langchain-groq
+langgraph-checkpoint-sqlite
 
 # -------------------------
 # Spotify
@@ -52,3 +60,23 @@ opencv-python
 Pillow
 websockets
 pyaudio
+
+# -------------------------
+# PC Controls
+# -------------------------
+pycaw>=20181226                # Volume control
+screen-brightness-control>=0.23.0  # Brightness control
+pyautogui>=0.9.54              # Screenshot, minimize all
+
+# -------------------------
+# Research Tools
+# -------------------------
+arxiv>=2.1.0                   # Academic paper search
+trafilatura>=1.6.0             # Webpage summarization
+youtube-search-python>=1.6.6   # YouTube search
+
+# -------------------------
+# Testing
+# -------------------------
+pytest>=7.0.0                  # Test framework
+pytest-cov>=4.0.0              # Coverage reports
