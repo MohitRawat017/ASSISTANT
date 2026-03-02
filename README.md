@@ -1,173 +1,206 @@
-# 🎙️ Desktop Voice Assistant
+# Tsuzi — AI Voice Assistant
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=for-the-badge&logo=python&logoColor=white)
-![Status](https://img.shields.io/badge/Status-Version%202.0-green?style=for-the-badge)
-![Backend](https://img.shields.io/badge/Backend-LangGraph%20%2B%20Groq-orange?style=for-the-badge)
+![Status](https://img.shields.io/badge/Version-1.0-brightgreen?style=for-the-badge)
+![Pipeline](https://img.shields.io/badge/Pipeline-Multi--Layer%20AI-purple?style=for-the-badge)
+![TTS](https://img.shields.io/badge/TTS-Kokoro%20%7C%20KittenTTS-orange?style=for-the-badge)
 
-A powerful, local-first voice assistant (Tsuzi) with intelligent function routing via LangGraph. Uses a ReAct Agent powered by Llama 3.x (Groq / OpenRouter) to seamlessly answer queries and invoke tools on your machine.
+> A fully local, multi-layer AI assistant that routes queries through fine-tuned models before reaching any cloud API — keeping costs near-zero, latency sub-second, and privacy intact.
 
 ---
 
-## 🧠 System Architecture
+## Architecture
 
-```mermaid
-graph TD
-    subgraph Input
-        User([User]) -->|Voice/Text| Input[Input Handler]
-    end
+Tsuzi uses a 5-layer inference pipeline where most queries never touch a large cloud model:
 
-    subgraph "Processing Core"
-        Input -->|Audio Buffer| ASR[Faster-Whisper ASR]
-        ASR -->|Text| Router[LangGraph ReAct Agent]
-        Input -->|Text| Router
-
-        Router -->|Tool Use| ToolGroup[Dynamic Tool Selector]
-        Router -->|Conversation| Memory[(SQLite Checkpointer)]
-        
-        ToolGroup --> Productivity[Productivity]
-        ToolGroup --> System[System]
-        ToolGroup --> Research[Research]
-        ToolGroup --> Comm[Communication]
-        
-        Router -->|Response Text| TTS[Kokoro / KittenTTS]
-    end
-
-    subgraph "Managers & Services"
-        Productivity --> TaskMgr[TaskManager]
-        Productivity --> AlarmMgr[AlarmManager]
-        Productivity --> CalMgr[CalendarManager]
-        Research --> Web[Web/ArXiv/StackOverflow]
-        Comm --> Email[Email Services]
-        System --> OS[OS Commands]
-    end
-
-    subgraph "Output"
-        TTS -->|Audio| Speaker([Speakers])
-    end
-
-    style Router fill:#f9f,stroke:#333,stroke-width:2px
-    style ToolGroup fill:#bbf,stroke:#333,stroke-width:2px
+```
+User Query
+    │
+    ▼
+┌─────────────────────────────────────┐
+│  Layer 0 — Pre-filter               │  ~0.01ms
+│  String match for casual inputs     │
+│  "hello" / "thanks" / "ok"          │
+└────────────────┬────────────────────┘
+                 │ (not casual)
+                 ▼
+┌─────────────────────────────────────┐
+│  Layer 1 — MiniLM Intent Router     │  ~5ms · CPU
+│  Fine-tuned BERT classifier         │
+│  → casual / productivity /          │
+│    system / research / comms        │
+└────────────────┬────────────────────┘
+                 │ (confidence ≥ 0.60)
+                 ▼
+┌─────────────────────────────────────┐
+│  Layer 2 — Tool Category Lookup     │  ~0ms
+│  Narrows tool set to 2–5 options    │
+│  based on detected intent           │
+└────────────────┬────────────────────┘
+                 │
+                 ▼
+┌─────────────────────────────────────┐
+│  Layer 3 — FunctionGemma            │  ~20–50ms · GPU
+│  Fine-tuned LoRA on Gemma-270M      │
+│  Outputs: {"tool": ..., "args": ...}│
+└────────────────┬────────────────────┘
+                 │ (valid JSON)
+                 ▼
+┌─────────────────────────────────────┐
+│  Layer 4 — Tool Execution           │  direct
+│  Runs the selected tool locally     │
+└─────────────────────────────────────┘
+                 │ (fallback at any layer)
+                 ▼
+┌─────────────────────────────────────┐
+│  Groq LLM (llama-3.3-70b)          │  ~300–800ms
+│  Complex reasoning / unknown intent │
+└─────────────────────────────────────┘
+                 │
+                 ▼
+┌─────────────────────────────────────┐
+│  Kokoro / KittenTTS                 │
+│  Local neural TTS — spoken response │
+└─────────────────────────────────────┘
 ```
 
 ---
 
-## ✨ Key Features
+## Performance
 
-### 🎯 Intelligent Routing (ReAct Agent)
-- **LangGraph Architecture**: Tsuzi uses a robust LangGraph ReAct agent loop for multi-step reasoning and tool execution.
-- **Dynamic Tool Selection**: A local keyword heuristic pre-filters tools (Productivity, System, Research, Communication) before sending them to the LLM to save tokens and improve latency.
-- **Short-term Memory**: Powered by LangGraph's `SqliteSaver` to remember conversation state (thread checkpointer).
+| Path | Latency | Cloud Cost |
+|------|---------|------------|
+| Casual pre-filter → LLM | ~350ms | Minimal (short prompt) |
+| MiniLM + FunctionGemma → Tool | **~25–55ms** | **Zero** |
+| Low-confidence → Groq fallback | ~400–800ms | Low |
 
-### 🗂️ Tool Categories
-Tools are grouped modularly to provide broad capability:
-- **Productivity**: Set alarms, logic timers, manage SQLite tasks list, create calendar events, check system info.
-- **System**: Launch local applications, run terminal commands (OS-level).
-- **Research**: DuckDuckGo web search, ArXiv paper search, StackOverflow search.
-- **Communication**: Send and read emails.
-
-### ⚡ Performance Features
-- **Streaming audio**: High quality TTS generated using Kokoro or KittenTTS.
-- **Stateful Threading**: Context-aware interactions across a single session using LangGraph checkpoints.
-- **ASR Fallback**: Revert to fast text-based input if microphone is unavailable.
-
-### 🛠️ Example Interactions
-```
-"Set a timer for 10 minutes"              → Productivity (set_timer)
-"Wake me up at 7am"                       → Productivity (set_alarm)
-"Schedule meeting tomorrow at 3pm"        → Productivity (create_calendar_event)
-"Find recent papers on quantum computing" → Research (search_arxiv)
-"Open Spotify"                            → System (open_app)
-```
+The majority of practical voice commands (set timer, open app, web search) resolve in under **60ms** via the local model stack, with zero API cost.
 
 ---
 
-## 🛠️ Tech Stack
+## Capabilities
 
-| Component | Technology | Description |
-|-----------|------------|-------------|
-| **ASR** | `Faster-Whisper` | Fast local transcription |
-| **Agent** | `LangGraph` | Stateful ReAct Agent for complex routing |
-| **LLM** | `Groq / OpenRouter` | Llama-3.x inference for tool calling |
-| **TTS** | `Kokoro / KittenTTS` | Fast, local voice synthesis |
-| **Memory** | `SQLite / LangGraph` | Checkpointer for conversation state |
+### Productivity
+- Set timers and alarms with natural language durations
+- Create and query tasks via a local SQLite task list
+- Schedule calendar events with natural language dates
+
+### System
+- Launch any installed desktop application by name
+- Execute shell commands with output capped and safety checks
+- Query system info (time, date, status)
+
+### Research
+- Real-time web search via DuckDuckGo (no API key required)
+- Academic paper search via arXiv
+- Stack Overflow code search
+
+### Communication
+- Send and read Gmail with app-password auth
 
 ---
 
-## 🚀 Getting Started
+## Tech Stack
 
-### Prerequisites
+| Component | Technology |
+|-----------|------------|
+| Intent Classification | Fine-tuned MiniLM-L6-v2 (BERT, 22M params, CPU) |
+| Tool Selection | Fine-tuned FunctionGemma-270M LoRA (GPU) |
+| LLM Fallback | Groq `llama-3.3-70b-versatile` |
+| ASR | Faster-Whisper Large-v3 Turbo |
+| TTS | Kokoro-82M / KittenTTS |
+| Memory | SQLite (LangGraph checkpointer, v2) |
+| Tool Retrieval | Sentence-Transformers embedding similarity |
 
-- **Python 3.10+**
-- API Keys: 
-  - `GROQ_API_KEY` (or `OPENROUTER_API_KEY`) for reasoning
-  - `EMAIL_USER` / `EMAIL_PASS` (if using communication tools)
+---
 
-### 1. Installation
+## Quick Start
+
+### 1. Install
 
 ```powershell
-# Create virtual environment
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-
-# Install dependencies
 pip install -r requirements.txt
 ```
 
-### 2. Environment Setup
+### 2. Configure
 
-Create a `.env` file in the root directory:
 ```env
+# .env
 GROQ_API_KEY=your_groq_key
-OPENROUTER_API_KEY=your_openrouter_key
-EMAIL_USER=your_email@gmail.com
-EMAIL_PASS=your_app_password
+GMAIL_ADDRESS=your_email@gmail.com
+GMAIL_APP_PASSWORD=your_app_password
+OLLAMA_MODEL=qwen2.5:7b          # optional, for local LLM
 ```
 
-### 3. Model Setup (ASR/TTS)
-
-Download necessary local models:
-
-```powershell
-python download_model.py
-```
-
-### 4. Run Assistant
+### 3. Run
 
 ```powershell
 python -m src.main
 ```
 
-**Configuration flags** (edit `src/main.py`):
-- `USE_ASR = True` → Use microphone (set `False` for text input mode)
-- `DEBUG_MODE = True` → Print routing decisions, tokens, and timing
+Set `USE_ASR = True` in `src/main.py` to enable voice input via microphone.
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 src/
-├── main.py                    # Main pipeline
-├── graph/                     # LangGraph Agent definition
-│   └── agent.py               # ReAct checkpointer and logic
-├── tools/                     # Action tools and groups
-│   ├── tool_group.py          # Dynamic tool loader
-│   └── wrapped_tools.py       # Langchain tool wrappers
-├── managers/                  # Data persistence and domain logic
+├── main.py                    # Entry point
+├── tools/
+│   ├── pre_filter.py          # Layer 0 — casual query detection
+│   ├── intent_router.py       # Layer 1 — MiniLM intent classification
+│   ├── tools_by_category.py   # Layer 2 — tool category mapping
+│   ├── tool_router.py         # Layer 3 — FunctionGemma tool selection
+│   ├── decision_router.py     # Layer 4 — pipeline orchestrator
+│   ├── tool_retriever.py      # Embedding-based retrieval (fallback path)
+│   └── wrapped_tools.py       # All tool implementations
+├── managers/
 │   ├── task_manager.py
 │   ├── alarm_manager.py
 │   └── calendar_manager.py
 ├── audio_input/
-│   └── asr.py                 # Faster-Whisper handler
+│   └── asr.py                 # Faster-Whisper ASR
 ├── audio_output/
-│   ├── KokoroTTS.py           # Kokoro integration
-│   └── kittentts.py           # Kitten TTS integration
+│   ├── KokoroTTS.py
+│   └── kittentts.py
 └── utils/
-    └── config.py              # Environment configuration
+    └── config.py
+
+models/
+├── asr/                       # Faster-Whisper weights
+├── tts/                       # Kokoro / KittenTTS weights
+└── tool_call/
+    ├── miniLM/                # Fine-tuned intent classifier
+    └── function_gemma/        # Fine-tuned LoRA tool selector
 ```
 
 ---
 
-## ⚖️ License
+## Example Interactions
 
-[MIT License](LICENSE)
+```
+You: set a timer for 10 minutes
+→ MiniLM: productivity (0.94) → FunctionGemma: set_timer(duration="10 minutes")
+Tsuzi: Timer set for 10 minutes, master.
+
+You: find papers on diffusion models
+→ MiniLM: research (0.91) → FunctionGemma: search_arxiv(query="diffusion models")
+Tsuzi: Found 3 papers on diffusion models...
+
+You: open spotify
+→ MiniLM: system (0.97) → FunctionGemma: open_app(app_name="spotify")
+Tsuzi: Opening Spotify, master.
+
+You: hey how are you
+→ Pre-filter: casual → Groq LLM
+Tsuzi: Doing great, master! What can I do for you?
+```
+
+---
+
+## License
+
+[MIT](LICENSE)

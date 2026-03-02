@@ -94,6 +94,10 @@ tests/test_results/
 PHASE1_LEARNING
 plan.md
 questions.md
-review.md 
+review.md
 terminal_output.md
 updates.md
+
+# LangGraph Agent (saved for v2)
+src/graph/
+src/tools/tool_retriever.py
