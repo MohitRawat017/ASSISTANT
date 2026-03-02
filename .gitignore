@@ -101,3 +101,4 @@ updates.md
 # LangGraph Agent (saved for v2)
 src/graph/
 src/tools/tool_retriever.py
+tests/test_tool_retriever.py
