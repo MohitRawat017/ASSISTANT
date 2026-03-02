@@ -90,3 +90,10 @@ data/memory/
 # Test output
 tests/test_results/
 *.pyerrors.txt
+
+PHASE1_LEARNING
+plan.md
+questions.md
+review.md 
+terminal_output.md
+updates.md

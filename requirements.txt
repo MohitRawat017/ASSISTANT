@@ -29,6 +29,7 @@ qwen-tts
 # Optional (only needed if you switch to KokoroTTS)
 kokoro
 kittentts
+
 # -------------------------
 # Router (src/router.py) — Tier 1 only
 # -------------------------
@@ -40,8 +41,14 @@ huggingface_hub>=0.23.0
 # -------------------------
 langgraph
 langchain-core
+langchain-ollama>=0.1.0
 langchain-groq
 langgraph-checkpoint-sqlite
+
+# -------------------------
+# Tool Retrieval (embedding-based)
+# -------------------------
+sentence-transformers>=2.2.0
 
 # -------------------------
 # Spotify

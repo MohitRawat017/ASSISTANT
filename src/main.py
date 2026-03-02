@@ -8,15 +8,17 @@ from rich.console import Console
 console = Console()
 
 # Flags
-USE_ASR = True       # True = microphone via ASRHandler, False = text input
+USE_ASR = False       # True = microphone via ASRHandler, False = text input
 DEBUG_MODE = True   # True = print token estimates, timing, and selected tools
 
 
 def _debug_print(user_input: str, response: str, elapsed: float):
     """Print debug info: timing, estimated token counts, tools used."""
-    from src.tools.tool_group import get_tools_for_query
+    # Use the same retriever the agent uses — so debug output
+    # accurately reflects which tools were actually selected
+    from src.tools.tool_retriever import get_retriever
 
-    selected_tools = get_tools_for_query(user_input)
+    selected_tools = get_retriever().get_tools(user_input)
     tool_names = [t.name for t in selected_tools]
 
     # Token estimate: ~1 token per 4 chars (standard heuristic)

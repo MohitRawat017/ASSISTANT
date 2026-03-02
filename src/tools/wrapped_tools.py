@@ -1,5 +1,12 @@
 """
 LangGraph tools wrapping the existing managers.
+
+IMPORTANT: The docstrings below are used for BOTH:
+1. The LLM — to decide which tool to call and how to fill args
+2. The embedding retriever — to match user queries to relevant tools
+
+So keep docstrings specific, action-oriented, and rich with trigger
+phrases. Vague docstrings = wrong tools getting selected.
 """
 
 import os
@@ -129,7 +136,7 @@ def parse_date(date_str: str) -> str:
 # Tools
 @tool
 def set_timer(duration: str, label: str = "Timer") -> str:
-    """Set a countdown timer for the given duration like '5 minutes' or '30 seconds'."""
+    """Set a countdown timer for a specified duration. Use for timing activities, cooking, study sessions, or any timed event. Accepts durations like '5 minutes', '1 hour 30 minutes', or '90 seconds'. Optionally label the timer."""
     try:
         mgr = get_timer_manager()
         seconds = parse_duration(duration)
@@ -143,7 +150,7 @@ def set_timer(duration: str, label: str = "Timer") -> str:
 
 @tool
 def set_alarm(time: str, label: str = "Alarm") -> str:
-    """Set an alarm for a specific time like '7am' or '14:30'."""
+    """Set a clock alarm to ring at a specific time of day. Use for wake-up alarms, meeting reminders, or scheduled notifications. Accepts times like '7am', '14:30', or '6:30 pm'. Optionally label the alarm."""
     try:
         mgr = get_alarm_manager()
         normalized = normalize_time(time)
@@ -165,7 +172,7 @@ def set_alarm(time: str, label: str = "Alarm") -> str:
 
 @tool
 def create_calendar_event(title: str, date: str = "today", time: str = "09:00", duration: int = 60) -> str:
-    """Create a calendar event with a title, date, time, and duration in minutes."""
+    """Create a new event on the calendar with a title, date, time, and duration. Use when the user wants to schedule a meeting, appointment, class, deadline, or any time-bound event. Accepts dates like 'today', 'tomorrow', 'next Monday', or 'YYYY-MM-DD'."""
     try:
         mgr = get_calendar_manager()
         event_date = parse_date(date)
@@ -189,7 +196,7 @@ def create_calendar_event(title: str, date: str = "today", time: str = "09:00", 
 
 @tool
 def add_task(text: str) -> str:
-    """Add a task to the to-do list."""
+    """Add a new task or to-do item to the task list. Use when the user wants to remember, track, or schedule something they need to do. Accepts any task description text like 'buy groceries' or 'finish homework'."""
     try:
         mgr = get_task_manager()
         if not text.strip():
@@ -204,7 +211,7 @@ def add_task(text: str) -> str:
 
 @tool
 def get_tasks() -> str:
-    """Get all tasks from the to-do list."""
+    """Retrieve and display all tasks from the to-do list, showing both pending and completed items. Use when the user asks what they need to do, checks their task list, or reviews their progress."""
     try:
         mgr = get_task_manager()
         tasks = mgr.get_tasks()
@@ -232,7 +239,7 @@ def get_tasks() -> str:
 
 @tool
 def web_search(query: str) -> str:
-    """Search the web for information using a search query."""
+    """Search the internet using DuckDuckGo for real-time information, news, facts, or answers. Use for general knowledge questions like 'what is', 'who is', 'where is', geography, history, current events, definitions, or any factual lookup. Also use for weather queries ('weather in Delhi', 'temperature today'), finding latest information ('latest news', 'recent research'), searching for models or technologies ('latest AI models', 'new image models'), or when no other specific tool matches. This is a general-purpose search tool. Returns top results with titles and snippets."""
     try:
         from ddgs import DDGS
         with DDGS() as ddgs:
@@ -253,7 +260,7 @@ def web_search(query: str) -> str:
 
 @tool
 def get_system_info() -> str:
-    """Get current status: time, timers, alarms, events, tasks."""
+    """Get a comprehensive system status overview including the current date and time, active timers and their remaining time, scheduled alarms, today's calendar events, and pending tasks. Use when the user asks 'what time is it', 'what day is it', 'what's my schedule', 'what's going on', or wants a full status summary."""
     try:
         parts = []
         now = datetime.now()
@@ -307,7 +314,7 @@ def get_system_info() -> str:
 
 @tool
 def send_email(subject: str, body: str) -> str:
-    """Send an email via Gmail."""
+    """Send an email through Gmail with a subject and body. Use when the user wants to email someone, send a message, compose a mail, or forward information. Requires Gmail credentials configured in .env."""
     try:
         svc = get_email_service()
         if svc.send_reminder(subject, body):
@@ -319,7 +326,7 @@ def send_email(subject: str, body: str) -> str:
 
 @tool
 def open_app(app_name: str) -> str:
-    """Open a desktop application by name."""
+    """Launch and open a desktop application or program by name. Use when the user wants to start, launch, or open an app, application, program, or software. Examples: 'open Chrome', 'start Spotify', 'launch Discord', 'run Notepad', 'open browser', 'start VS Code', 'launch Firefox'. Works with any installed desktop application on Windows."""
     try:
         from AppOpener import open as app_open
         app_open(app_name)
@@ -332,7 +339,7 @@ def open_app(app_name: str) -> str:
 
 @tool
 def run_command(command: str) -> str:
-    """Run a safe terminal command and return the output."""
+    """Execute a safe terminal or shell command on the system and return the output. Use for system operations like checking disk space, listing files, getting IP address, checking current directory, running scripts, or executing shell commands. Examples: 'pwd' for current directory, 'dir' to list files, 'ipconfig' for network info, 'python script.py' to run Python. Dangerous commands (rm, del, format, shutdown) are blocked for safety."""
     import subprocess
 
     # Block dangerous commands
@@ -349,25 +356,29 @@ def run_command(command: str) -> str:
             shell=True,
             capture_output=True,
             text=True,
-            timeout=15,
+            timeout=10,  # Reduced from 15s to prevent long waits
             cwd=Config.BASE_DIR
         )
         output = result.stdout.strip()
         errors = result.stderr.strip()
 
         if result.returncode != 0 and errors:
-            return f"Command failed:\n{errors[:1000]}"
-        return output[:2000] if output else "Command ran successfully (no output)."
+            return f"Command failed:\n{errors[:500]}"  # Capped at 500 chars
+        
+        # Cap output at 500 chars to prevent LLM confusion/looping
+        if output:
+            return output[:500] if len(output) > 500 else output
+        return "Command ran successfully (no output)."
 
     except subprocess.TimeoutExpired:
-        return "Command timed out (15s limit)."
+        return "Command timed out (10s limit)."
     except Exception as e:
-        return f"Failed to run command: {e}"
+        return f"Failed to run command: {str(e)[:200]}"
 
 
 @tool
 def search_stackoverflow(query: str) -> str:
-    """Search Stack Overflow for coding answers."""
+    """Search Stack Overflow for programming questions, coding solutions, and technical answers. Use when the user asks 'how to' do something in code, needs debugging help, code examples, error message fixes, or software development questions like 'how to reverse a list in python'. Returns relevant Q&A excerpts."""
     import requests
 
     try:
@@ -397,7 +408,7 @@ def search_stackoverflow(query: str) -> str:
 
 @tool
 def search_arxiv(query: str, max_results: int = 3) -> str:
-    """Search academic papers on arXiv."""
+    """Search arXiv for academic research papers, preprints, and scientific publications. Use when the user asks about research papers, scientific studies, ML papers, academic literature, or wants to find papers on a topic. Examples: 'research paper on transformers', 'latest papers on OpenCV', 'find ML papers about attention', 'arXiv search for neural networks'. Returns paper titles, authors, dates, and summaries."""
     import arxiv
 
     try:
@@ -427,7 +438,7 @@ def search_arxiv(query: str, max_results: int = 3) -> str:
 
 @tool
 def read_emails(count: int = 5, filter_type: str = "unread") -> str:
-    """Read recent emails from Gmail inbox."""
+    """Read and display recent emails from the Gmail inbox. Can filter by unread, today's messages, or all mail. Use when the user wants to check their inbox, see new messages, or review recent correspondence."""
     import imaplib
     import email
     from email.header import decode_header
