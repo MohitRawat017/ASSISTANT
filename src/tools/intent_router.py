@@ -20,9 +20,15 @@ class IntentClassifier(nn.Module):
         hidden_size = self.encoder.config.hidden_size
         self.classifier = nn.Linear(hidden_size, num_labels)
 
+    def _mean_pooling(self, outputs, attention_mask):
+        last_hidden = outputs.last_hidden_state
+        mask = attention_mask.unsqueeze(-1).expand(last_hidden.size()).float()
+        return torch.sum(last_hidden * mask, 1) / torch.clamp(mask.sum(1), min=1e-9)
+
     def forward(self, input_ids, attention_mask=None):
         outputs = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
-        return self.classifier(outputs.pooler_output)
+        pooled = self._mean_pooling(outputs, attention_mask)
+        return self.classifier(pooled)
 
 
 _model = None

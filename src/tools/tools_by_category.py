@@ -34,7 +34,8 @@ def get_tool_schemas(category: str) -> list:
 
                 props = schema.get("properties", {})
                 if props:
-                    parts = [f"{n} ({i.get('type', 'str')})" for n, i in props.items()]
+                    req = schema.get("required", [])
+                    parts = [f"{n} {'required' if n in req else 'optional'}" for n in props]
                     args_str = ", ".join(parts)
             except Exception:
                 pass

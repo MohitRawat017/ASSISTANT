@@ -6,8 +6,6 @@ from src.tools.tool_router import predict_tool
 
 logger = logging.getLogger(__name__)
 
-CONFIDENCE_THRESHOLD = 0.60
-
 
 def _get_llm_response(query: str) -> str:
     from src.graph.agent import run_agent
@@ -28,9 +26,11 @@ def _execute_tool(tool_name: str, tool_args: dict, category: str) -> str:
 
 
 def route_query(query: str) -> str:
+    # Layer 0: fast string-match for casual inputs, go straight to LLM
     if is_casual_query(query):
         return _get_llm_response(query)
 
+    # Layer 1: MiniLM intent classification
     try:
         intent = predict_intent(query)
     except Exception as e:
@@ -38,21 +38,24 @@ def route_query(query: str) -> str:
         return _get_llm_response(query)
 
     label = intent["label"]
-    confidence = intent["confidence"]
 
-    if label == "casual" or confidence < CONFIDENCE_THRESHOLD:
+    # If MiniLM says it's casual, let the LLM handle conversation
+    if label == "casual":
         return _get_llm_response(query)
 
+    # Layer 2: get the tool schemas for the detected category
     tool_schemas = get_tool_schemas(label)
     if not tool_schemas:
         return _get_llm_response(query)
 
+    # Layer 3: FunctionGemma picks the exact tool + args
     try:
         tool_result = predict_tool(query, tool_schemas)
     except Exception as e:
         logger.error(f"FunctionGemma failed: {e}")
         return _get_llm_response(query)
 
+    # Layer 4: execute the selected tool directly
     if tool_result is None:
         return _get_llm_response(query)
 
