@@ -102,3 +102,7 @@ updates.md
 src/graph/
 src/tools/tool_retriever.py
 tests/test_tool_retriever.py
+
+# Google OAuth credentials — never commit
+src/credentials/
+token.json

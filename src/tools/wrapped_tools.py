@@ -18,9 +18,7 @@ from src.utils.config import Config
 
 # Manager instances (lazy-loaded)
 alarm_mgr = None
-task_mgr = None
-calendar_mgr = None
-email_svc = None
+memory_store = None
 
 
 def get_alarm_manager():
@@ -31,31 +29,13 @@ def get_alarm_manager():
     return alarm_mgr
 
 
-def get_task_manager():
-    global task_mgr
-    if task_mgr is None:
-        from src.managers.task_manager import TaskManager
-        task_mgr = TaskManager()
-    return task_mgr
-
-
-def get_calendar_manager():
-    global calendar_mgr
-    if calendar_mgr is None:
-        from src.managers.calendar_manager import CalendarManager
-        calendar_mgr = CalendarManager()
-    return calendar_mgr
-
-
-def get_email_service():
-    global email_svc
-    if email_svc is None:
-        from src.services.email_service import EmailService
-        sender = os.environ.get("GMAIL_ADDRESS", "")
-        password = os.environ.get("GMAIL_APP_PASSWORD", "")
-        recipient = os.environ.get("REMINDER_EMAIL", sender)
-        email_svc = EmailService(sender, password, recipient)
-    return email_svc
+def get_memory_store():
+    """Get the long-term memory store instance."""
+    global memory_store
+    if memory_store is None:
+        from src.memory import LongTermMemory
+        memory_store = LongTermMemory()
+    return memory_store
 
 
 # Helpers
@@ -63,7 +43,7 @@ def parse_duration(duration_str: str) -> int:
     """Parse '10 minutes', '1 hour', etc. to seconds."""
     duration_str = duration_str.lower().strip()
     total = 0
-    
+
     patterns = [
         (r'(\d+)\s*h(?:our)?s?', 3600),
         (r'(\d+)\s*m(?:in(?:ute)?s?)?', 60),
@@ -73,7 +53,7 @@ def parse_duration(duration_str: str) -> int:
         match = re.search(pattern, duration_str)
         if match:
             total += int(match.group(1)) * multiplier
-    
+
     if total == 0:
         nums = re.findall(r'\d+', duration_str)
         if nums:
@@ -104,13 +84,13 @@ def parse_date(date_str: str) -> str:
         return datetime.strptime(date_str, "%Y-%m-%d").strftime("%Y-%m-%d")
     except ValueError:
         pass
-    
+
     today = datetime.now()
     if date_str in ("today", ""):
         return today.strftime("%Y-%m-%d")
     if date_str == "tomorrow":
         return (today + timedelta(days=1)).strftime("%Y-%m-%d")
-    
+
     days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
     for i, day in enumerate(days):
         if day in date_str:
@@ -120,7 +100,7 @@ def parse_date(date_str: str) -> str:
             if "next" in date_str:
                 ahead += 7
             return (today + timedelta(days=ahead)).strftime("%Y-%m-%d")
-    
+
     return today.strftime("%Y-%m-%d")
 
 
@@ -146,7 +126,7 @@ def set_alarm(time: str, label: str = "Alarm") -> str:
         mgr = get_alarm_manager()
         normalized = normalize_time(time)
         alarm_id = mgr.add_alarm(normalized, label)
-        
+
         if alarm_id:
             try:
                 from src.scheduler_windows import WindowsScheduler
@@ -159,117 +139,6 @@ def set_alarm(time: str, label: str = "Alarm") -> str:
         return "Failed to set alarm."
     except Exception as e:
         return f"Failed to set alarm: {e}"
-
-
-@tool
-def create_calendar_event(title: str, date: str = "today", time: str = "09:00", duration: int = 60) -> str:
-    """
-    Create a new event on the calendar.
-
-    USE when the user says:
-    - "schedule a meeting", "book an appointment", "add an event"
-    - "put [X] on the calendar", "plan a call at [time]"
-    - "I have a class on Friday", "add a deadline for tomorrow"
-
-    DO NOT use for:
-    - Simple to-dos without a specific time (use add_task)
-    - Setting alarms (use set_alarm)
-
-    Args:
-        title: Name of the event
-        date: Date ("today", "tomorrow", "next Monday", "YYYY-MM-DD")
-        time: Start time (default "09:00")
-        duration: Duration in minutes (default 60)
-    """
-    try:
-        mgr = get_calendar_manager()
-        event_date = parse_date(date)
-        normalized_time = normalize_time(time) if time else "09:00"
-        start_dt = f"{event_date} {normalized_time}:00"
-        
-        try:
-            start = datetime.strptime(start_dt, "%Y-%m-%d %H:%M:%S")
-            end = start + timedelta(minutes=duration if isinstance(duration, int) else 60)
-            end_dt = end.strftime("%Y-%m-%d %H:%M:%S")
-        except:
-            end_dt = start_dt
-        
-        event = mgr.add_event(title, start_dt, end_dt)
-        if event:
-            return f"Created event '{title}' on {date}" + (f" at {time}" if time else "") + "."
-        return "Failed to create event."
-    except Exception as e:
-        return f"Failed to create event: {e}"
-
-
-@tool
-def add_task(text: str) -> str:
-    """
-    Add a new task or to-do item to the task list.
-
-    USE when the user says:
-    - "add a task", "note this down", "don't forget to [X]", "remember to [X]"
-    - "put [X] on my list", "add to my to-do", "track [X]"
-    - "remind me to [X]" (without a specific time)
-
-    DO NOT use for:
-    - Events with a specific time (use create_calendar_event)
-    - Reading tasks (use get_tasks)
-
-    Args:
-        text: The task description to add
-    """
-    try:
-        mgr = get_task_manager()
-        if not text.strip():
-            return "No task text provided."
-        task = mgr.add_task(text.strip())
-        if task:
-            return f"Added task: {text}"
-        return "Failed to add task."
-    except Exception as e:
-        return f"Failed to add task: {e}"
-
-
-@tool
-def get_tasks() -> str:
-    """
-    Retrieve and display all pending and completed tasks.
-
-    USE when the user says:
-    - "what are my tasks?", "show my to-do list", "what do I have to do?"
-    - "what's pending?", "check my tasks", "any tasks?", "what's on my list?"
-
-    DO NOT use for:
-    - Calendar events (use get_system_info)
-    - Adding new tasks (use add_task)
-
-    Returns a formatted list with pending and completed tasks, usable in
-    subsequent steps for prioritization or reporting.
-    """
-    try:
-        mgr = get_task_manager()
-        tasks = mgr.get_tasks()
-        
-        if not tasks:
-            return "Your task list is empty."
-        
-        lines = []
-        pending = [t for t in tasks if not t.get("completed")]
-        done = [t for t in tasks if t.get("completed")]
-        
-        if pending:
-            lines.append(f"Pending ({len(pending)}):")
-            for t in pending:
-                lines.append(f"  - {t['text']}")
-        if done:
-            lines.append(f"Completed ({len(done)}):")
-            for t in done:
-                lines.append(f"  ✓ {t['text']}")
-        
-        return "\n".join(lines)
-    except Exception as e:
-        return f"Failed to get tasks: {e}"
 
 
 @tool
@@ -295,7 +164,7 @@ def web_search(query: str) -> str:
         from ddgs import DDGS
         with DDGS() as ddgs:
             results = list(ddgs.text(query, max_results=5))
-        
+
         if results:
             lines = [f"Results for '{query}':"]
             for i, r in enumerate(results[:3], 1):
@@ -324,14 +193,14 @@ def get_system_info() -> str:
     - Only adding things (use add_task / set_alarm / create_calendar_event)
     - Only reading tasks (use get_tasks if no schedule context is needed)
 
-    Returns current time, upcoming alarms, today's events, and pending tasks.
-    Useful as a first step before making scheduling decisions.
+    Returns current time, upcoming alarms, today's Google Calendar events,
+    and pending Google Tasks.
     """
     try:
         parts = []
         now = datetime.now()
         parts.append(f"Time: {now.strftime('%Y-%m-%d %H:%M:%S')}")
-        
+
         # Alarms
         try:
             alarms = get_alarm_manager().get_alarms()
@@ -341,55 +210,34 @@ def get_system_info() -> str:
                 parts.append("No alarms.")
         except:
             pass
-        
-        # Calendar
+
+        # Google Calendar — today's events
         try:
-            events = get_calendar_manager().get_events(now.strftime("%Y-%m-%d"))
-            if events:
-                parts.append("Today: " + ", ".join(f"{e['title']} at {e['start_time']}" for e in events[:5]))
+            from src.tools.google.calendar_tools import get_upcoming_events as _get_upcoming_events
+            events = _get_upcoming_events(max_results=5)
+            today_str = now.strftime("%Y-%m-%d")
+            today_events = [e for e in events if e["start"].startswith(today_str)]
+            if today_events:
+                parts.append("Today: " + ", ".join(f"{e['title']} at {e['start']}" for e in today_events))
             else:
                 parts.append("No events today.")
         except:
-            pass
-        
-        # Tasks
+            parts.append("Calendar unavailable.")
+
+        # Google Tasks — pending
         try:
-            tasks = get_task_manager().get_tasks()
-            pending = [t for t in tasks if not t.get("completed")]
-            if pending:
-                parts.append(f"Tasks ({len(pending)}): " + ", ".join(t['text'] for t in pending[:5]))
+            from src.tools.google.tasks_tools import get_google_tasks as _get_google_tasks
+            tasks = _get_google_tasks()
+            if tasks:
+                parts.append(f"Tasks ({len(tasks)}): " + ", ".join(t['title'] for t in tasks[:5]))
             else:
                 parts.append("No pending tasks.")
         except:
-            pass
-        
+            parts.append("Tasks unavailable.")
+
         return "\n".join(parts)
     except Exception as e:
         return f"Failed to get info: {e}"
-
-
-@tool
-def send_email(subject: str, body: str) -> str:
-    """
-    Send an email via Gmail.
-
-    USE when the user explicitly says:
-    - "send an email", "email [someone] about X", "compose a mail"
-    - "mail this to [address]", "send a message via email"
-
-    DO NOT use for:
-    - Reading emails (use read_emails)
-    - Casual messaging — this sends a real email via Gmail
-
-    Requires GMAIL_ADDRESS and GMAIL_APP_PASSWORD in .env.
-    """
-    try:
-        svc = get_email_service()
-        if svc.send_reminder(subject, body):
-            return f"Email sent: '{subject}'"
-        return "Failed to send email. Check Gmail credentials."
-    except Exception as e:
-        return f"Failed to send email: {e}"
 
 
 @tool
@@ -414,8 +262,6 @@ def open_app(app_name: str) -> str:
         return f"Opened {app_name}."
     except Exception as e:
         return f"Couldn't open {app_name}: {e}"
-
-
 
 
 @tool
@@ -451,16 +297,15 @@ def run_command(command: str) -> str:
             shell=True,
             capture_output=True,
             text=True,
-            timeout=10,  # Reduced from 15s to prevent long waits
+            timeout=10,
             cwd=Config.BASE_DIR
         )
         output = result.stdout.strip()
         errors = result.stderr.strip()
 
         if result.returncode != 0 and errors:
-            return f"Command failed:\n{errors[:500]}"  # Capped at 500 chars
-        
-        # Cap output at 500 chars to prevent LLM confusion/looping
+            return f"Command failed:\n{errors[:500]}"
+
         if output:
             return output[:500] if len(output) > 500 else output
         return "Command ran successfully (no output)."
@@ -471,87 +316,284 @@ def run_command(command: str) -> str:
         return f"Failed to run command: {str(e)[:200]}"
 
 
+# ── Memory Tools ───────────────────────────────────────────────────────
+
 @tool
-def read_emails(count: int = 5, filter_type: str = "unread") -> str:
+def save_memory(content: str, category: str = "other") -> str:
     """
-    Read recent emails from the Gmail inbox.
+    Save an important fact about the user for future reference.
+
+    USE when the user:
+    - Shares a preference: "I prefer dark mode", "I like my coffee black"
+    - Shares personal details: "my name is X", "I live in Y"
+    - Mentions their schedule: "I wake up at 7am", "my meeting is at 3pm"
+    - Says "remember that" or "don't forget this"
+    - Mentions current projects or interests
+
+    The saved fact persists across sessions and restarts.
+    Automatically updates if a similar fact already exists.
+
+    DO NOT ask for permission — just save it quietly.
+
+    Args:
+        content: The fact to remember (e.g., "User's name is Mohit")
+        category: Type of fact - "name", "location", "preference", "schedule", "project", "other"
+    """
+    try:
+        store = get_memory_store()
+        memory_id = store.save(content, category)
+        if memory_id:
+            return f"Remembered: {content}"
+        return "Failed to save memory."
+    except Exception as e:
+        return f"Failed to save memory: {e}"
+
+
+@tool
+def get_user_context(query: str = "") -> str:
+    """
+    Look up stored memories about the user.
+
+    USE when you need to:
+    - Recall specific information: "what's the user's name?"
+    - Check preferences: "do they prefer Celsius or Fahrenheit?"
+    - Find related facts: search for "location" or "preference"
+
+    DO NOT use for:
+    - General conversation (just respond naturally)
+    - When the user hasn't asked about their stored information
+
+    Args:
+        query: Optional search term to filter memories (empty = all memories)
+
+    Returns formatted list of stored facts about the user.
+    """
+    try:
+        store = get_memory_store()
+        if query:
+            memories = store.search(query)
+            if not memories:
+                return f"No memories found matching '{query}'."
+            lines = [f"Memories matching '{query}':"]
+            for m in memories:
+                lines.append(f"- {m['content']}")
+            return "\n".join(lines)
+        else:
+            context = store.get_context_string()
+            return context if context else "No memories stored yet."
+    except Exception as e:
+        return f"Failed to retrieve memories: {e}"
+
+
+# ── Google Workspace Tools ─────────────────────────────────────────────
+
+from src.tools.google.calendar_tools import (
+    create_calendar_event as _create_calendar_event,
+    get_upcoming_events as _get_upcoming_events,
+    delete_calendar_event as _delete_calendar_event,
+)
+from src.tools.google.tasks_tools import (
+    add_google_task as _add_google_task,
+    get_google_tasks as _get_google_tasks,
+    complete_google_task as _complete_google_task,
+    delete_google_task as _delete_google_task,
+)
+from src.tools.google.gmail_tools import (
+    send_gmail as _send_gmail,
+    read_unread_emails as _read_unread_emails,
+    search_emails as _search_emails,
+    mark_as_read as _mark_as_read,
+)
+
+
+@tool
+def create_calendar_event(title: str, start_time: str, end_time: str, description: str = "") -> str:
+    """
+    Create a Google Calendar event.
+
+    USE when the user says:
+    - "schedule a meeting", "book an appointment", "add an event"
+    - "put [X] on the calendar", "plan a call at [time]"
+    - "I have a class on Friday", "add a deadline for tomorrow"
+
+    DO NOT use for:
+    - Simple to-dos without a specific time (use add_task)
+    - Setting alarms (use set_alarm)
+    - Reading the calendar (use get_upcoming_events)
+
+    Args:
+        title: Name of the event.
+        start_time: ISO format "2025-03-15T10:00:00" (IST assumed)
+        end_time: ISO format "2025-03-15T11:00:00" (IST assumed)
+        description: Optional event description.
+
+    Returns confirmation with Google Calendar link.
+    """
+    result = _create_calendar_event(title, start_time, end_time, description)
+    if result["success"]:
+        return f"Event '{title}' created. Link: {result['link']}"
+    return f"Failed to create event: {result.get('error', 'unknown error')}"
+
+
+@tool
+def get_upcoming_events(max_results: int = 5) -> str:
+    """
+    Get upcoming Google Calendar events.
+
+    USE when the user says:
+    - "what's on my calendar?", "show my schedule", "any upcoming meetings?"
+    - "what do I have this week?", "what's next on my calendar?"
+
+    DO NOT use for:
+    - Creating events (use create_calendar_event)
+    - Full status overview (use get_system_info)
+
+    Args:
+        max_results: Number of events to return (default 5).
+
+    Returns list of upcoming events with start times.
+    """
+    events = _get_upcoming_events(max_results)
+    if not events:
+        return "No upcoming events found."
+    return "\n".join([f"• {e['title']} at {e['start']}" for e in events])
+
+
+@tool
+def add_task(title: str, notes: str = "", due: str = None) -> str:
+    """
+    Add a new task or to-do item to Google Tasks.
+
+    USE when the user says:
+    - "add a task", "note this down", "don't forget to [X]", "remember to [X]"
+    - "put [X] on my list", "add to my to-do", "track [X]"
+    - "remind me to [X]" (without a specific time)
+
+    DO NOT use for:
+    - Events with a specific time (use create_calendar_event)
+    - Reading tasks (use get_tasks)
+
+    Args:
+        title: Task title / description.
+        notes: Optional additional notes.
+        due: Optional due date "YYYY-MM-DD" (e.g. "2025-03-15")
+    """
+    if due and len(due) == 10:
+        due = due + "T00:00:00.000Z"
+    result = _add_google_task(title, notes, due)
+    return f"Task '{title}' added." if result["success"] else f"Failed to add task: {result.get('error', '')}"
+
+
+@tool
+def get_tasks() -> str:
+    """
+    Get all pending tasks from Google Tasks.
+
+    USE when the user says:
+    - "what are my tasks?", "show my to-do list", "what do I have to do?"
+    - "what's pending?", "check my tasks", "any tasks?", "what's on my list?"
+
+    DO NOT use for:
+    - Calendar events (use get_upcoming_events or get_system_info)
+    - Adding new tasks (use add_task)
+
+    Returns a formatted list of pending tasks.
+    """
+    tasks = _get_google_tasks()
+    if not tasks:
+        return "No pending tasks."
+    return "\n".join(
+        [f"• [{t['id']}] {t['title']}" + (f" (due: {t['due'][:10]})" if t.get("due") else "")
+         for t in tasks]
+    )
+
+
+@tool
+def complete_task(task_id: str) -> str:
+    """
+    Mark a Google Task as completed.
+
+    USE when the user says:
+    - "mark [task] as done", "complete task", "I finished [X]", "task done"
+    - task_id is shown in get_tasks() output in brackets like [abc123]
+
+    Requires task_id — call get_tasks() first to find it if needed.
+    """
+    result = _complete_google_task(task_id)
+    return "Task marked as complete." if result["success"] else f"Failed: {result.get('error', '')}"
+
+
+@tool
+def send_email(to: str, subject: str, body: str) -> str:
+    """
+    Send an email via Gmail.
+
+    USE when the user explicitly says:
+    - "send an email", "email [someone] about X", "compose a mail"
+    - "mail this to [address]", "send a message via email"
+
+    DO NOT use for:
+    - Reading emails (use read_emails)
+    - Casual messaging — this sends a real email via Gmail
+
+    Args:
+        to: Recipient email address (e.g. "someone@gmail.com")
+        subject: Email subject line.
+        body: Email body text.
+
+    Returns confirmation on success.
+    """
+    result = _send_gmail(to, subject, body)
+    return "Email sent successfully." if result["success"] else f"Failed to send email: {result.get('error', '')}"
+
+
+@tool
+def read_emails(max_results: int = 5) -> str:
+    """
+    Read unread emails from the Gmail inbox.
 
     USE when the user says:
     - "check my email", "any new emails?", "what's in my inbox?"
     - "show unread messages", "read my emails", "any mail today?"
-    - "check emails from today", "show all recent emails"
 
     DO NOT use for:
     - Sending emails (use send_email)
-    - Unless the user explicitly asks to read/check email
+    - Searching specific emails (use search_emails)
 
     Args:
-        count: How many emails to fetch (default 5)
-        filter_type: "unread" (default), "today", or "all"
+        max_results: Number of unread emails to fetch (default 5).
 
-    Returns sender, subject, and date for each email.
+    Returns sender, subject, and preview for each unread email.
     """
-    import imaplib
-    import email
-    from email.header import decode_header
+    emails = _read_unread_emails(max_results)
+    if not emails:
+        return "No unread emails."
+    lines = []
+    for e in emails:
+        lines.append(f"From: {e['from']}\nSubject: {e['subject']}\nPreview: {e['snippet']}\n")
+    return "\n".join(lines)
 
-    address = os.environ.get("GMAIL_ADDRESS", "")
-    password = os.environ.get("GMAIL_APP_PASSWORD", "")
 
-    if not address or not password:
-        return "Gmail credentials not configured in .env."
+@tool
+def search_emails(query: str) -> str:
+    """
+    Search Gmail with a query string.
 
-    try:
-        mail = imaplib.IMAP4_SSL("imap.gmail.com")
-        mail.login(address, password)
-        mail.select("inbox")
+    USE when the user asks to:
+    - "find emails from [name]", "search for emails about [topic]"
+    - "any emails with subject [X]?", "emails after [date]"
 
-        # Pick search criteria
-        if filter_type == "unread":
-            criteria = "UNSEEN"
-        elif filter_type == "today":
-            from datetime import date
-            today = date.today().strftime("%d-%b-%Y")
-            criteria = f'SINCE {today}'
-        else:
-            criteria = "ALL"
+    Supports Gmail search syntax:
+    - "from:name", "subject:meeting", "after:2025/3/1", plain keywords
 
-        status, msg_ids = mail.search(None, criteria)
-        ids = msg_ids[0].split()
-
-        if not ids:
-            return f"No {filter_type} emails found."
-
-        # Get the most recent ones
-        recent_ids = ids[-count:]
-        recent_ids.reverse()
-
-        lines = [f"Recent {filter_type} emails ({len(recent_ids)}):"]
-        for mid in recent_ids:
-            status, msg_data = mail.fetch(mid, "(RFC822)")
-            raw = msg_data[0][1]
-            msg = email.message_from_bytes(raw)
-
-            # Decode subject
-            subject_raw = msg["Subject"] or "(no subject)"
-            decoded = decode_header(subject_raw)
-            subject = decoded[0][0]
-            if isinstance(subject, bytes):
-                subject = subject.decode(decoded[0][1] or "utf-8", errors="replace")
-
-            sender = msg["From"] or "unknown"
-            date_str = msg["Date"] or ""
-
-            lines.append(f"  From: {sender}")
-            lines.append(f"  Subject: {subject}")
-            lines.append(f"  Date: {date_str}")
-            lines.append("")
-
-        mail.logout()
-        return "\n".join(lines)
-
-    except Exception as e:
-        return f"Failed to read emails: {e}"
+    DO NOT use for:
+    - Reading all unread emails (use read_emails)
+    - Sending emails (use send_email)
+    """
+    emails = _search_emails(query)
+    if not emails:
+        return "No emails found matching that query."
+    return "\n".join([f"• {e['subject']} — from {e['from']}" for e in emails])
 
 
 # ── Tool Registry ───────────────────────────────────────────────────────
@@ -560,8 +602,10 @@ ALL_TOOLS = [
     # Productivity
     set_alarm,
     create_calendar_event,
+    get_upcoming_events,
     add_task,
     get_tasks,
+    complete_task,
     get_system_info,
     # System
     open_app,
@@ -571,4 +615,8 @@ ALL_TOOLS = [
     # Communication
     send_email,
     read_emails,
+    search_emails,
+    # Memory
+    save_memory,
+    get_user_context,
 ]

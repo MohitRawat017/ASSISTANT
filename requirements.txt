@@ -80,6 +80,14 @@ trafilatura>=1.6.0             # Webpage summarization
 youtube-search-python>=1.6.6   # YouTube search
 
 # -------------------------
+# Google APIs
+# -------------------------
+google-api-python-client>=2.100.0
+google-auth>=2.23.0
+google-auth-oauthlib>=1.1.0
+google-auth-httplib2>=0.1.1
+
+# -------------------------
 # Testing
 # -------------------------
 pytest>=7.0.0                  # Test framework

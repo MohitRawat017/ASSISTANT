@@ -42,3 +42,6 @@ class Config:
     GMAIL_ADDRESS = os.getenv("GMAIL_ADDRESS", "")
     GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "")
     REMINDER_EMAIL = os.getenv("REMINDER_EMAIL", "")  # defaults to GMAIL_ADDRESS if empty
+
+    # Debug mode - enables verbose logging and tool call visibility
+    DEBUG_MODE = True

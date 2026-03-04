@@ -15,7 +15,19 @@ USE_ASR = False
 DEBUG_MODE = True
 
 
+def initialize_google_auth():
+    """Run OAuth flow on startup if needed. Must complete before agent starts."""
+    from src.tools.google.auth import get_credentials
+    try:
+        get_credentials()
+        console.print("[bold green]Google services authenticated.[/bold green]")
+    except Exception as e:
+        console.print(f"[bold yellow]Google auth failed: {e}. Google tools unavailable.[/bold yellow]")
+
+
 def main():
+    initialize_google_auth()
+
     try:
         from src.audio_output.KokoroTTS import TTSHandler
         tts = TTSHandler()
