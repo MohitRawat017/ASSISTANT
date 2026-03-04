@@ -211,10 +211,10 @@ def skip_if_missing(module_name: str):
 # Category markers for organizing tests
 def pytest_configure(config):
     """Register custom markers."""
-    config.addinivalue_line("markers", "core: Core tools tests (timer, alarm, etc.)")
+    config.addinivalue_line("markers", "core: Core tools tests (alarm, calendar, tasks, etc.)")
     config.addinivalue_line("markers", "pc_control: PC control tests (volume, brightness, etc.)")
     config.addinivalue_line("markers", "file_ops: File operation tests")
-    config.addinivalue_line("markers", "research: Research tool tests (stackoverflow, arxiv, etc.)")
+    config.addinivalue_line("markers", "research: Research tool tests (web search, etc.)")
     config.addinivalue_line("markers", "habits: Habit tracking tests")
     config.addinivalue_line("markers", "email: Email tests (require credentials)")
     config.addinivalue_line("markers", "integration: Integration tests")

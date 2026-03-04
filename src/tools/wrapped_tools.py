@@ -17,19 +17,10 @@ from src.utils.config import Config
 
 
 # Manager instances (lazy-loaded)
-timer_mgr = None
 alarm_mgr = None
 task_mgr = None
 calendar_mgr = None
 email_svc = None
-
-
-def get_timer_manager():
-    global timer_mgr
-    if timer_mgr is None:
-        from src.managers.timer_manager import TimerManager
-        timer_mgr = TimerManager()
-    return timer_mgr
 
 
 def get_alarm_manager():
@@ -135,22 +126,22 @@ def parse_date(date_str: str) -> str:
 
 # Tools
 @tool
-def set_timer(duration: str, label: str = "Timer") -> str:
-    """Set a countdown timer for a specified duration. Use for timing activities, cooking, study sessions, or any timed event. Accepts durations like '5 minutes', '1 hour 30 minutes', or '90 seconds'. Optionally label the timer."""
-    try:
-        mgr = get_timer_manager()
-        seconds = parse_duration(duration)
-        if seconds <= 0:
-            return f"Couldn't understand duration: '{duration}'. Try '5 minutes' or '30 seconds'."
-        mgr.add_timer(label, seconds)
-        return f"Timer '{label}' set for {duration}."
-    except Exception as e:
-        return f"Failed to set timer: {e}"
-
-
-@tool
 def set_alarm(time: str, label: str = "Alarm") -> str:
-    """Set a clock alarm to ring at a specific time of day. Use for wake-up alarms, meeting reminders, or scheduled notifications. Accepts times like '7am', '14:30', or '6:30 pm'. Optionally label the alarm."""
+    """
+    Set a clock alarm to ring at a specific time of day.
+
+    USE when the user says:
+    - "wake me up at 7am", "set an alarm for 8:30", "remind me at 6pm"
+    - "alert me at noon", "alarm for 9", "set a reminder for 10pm"
+
+    DO NOT use for:
+    - Durations ("in 10 minutes") — there is no timer tool
+    - Adding tasks or calendar events — use add_task or create_calendar_event
+
+    Args:
+        time: Time of day in any format ("7am", "14:30", "6:30 pm")
+        label: Optional alarm label
+    """
     try:
         mgr = get_alarm_manager()
         normalized = normalize_time(time)
@@ -172,7 +163,24 @@ def set_alarm(time: str, label: str = "Alarm") -> str:
 
 @tool
 def create_calendar_event(title: str, date: str = "today", time: str = "09:00", duration: int = 60) -> str:
-    """Create a new event on the calendar with a title, date, time, and duration. Use when the user wants to schedule a meeting, appointment, class, deadline, or any time-bound event. Accepts dates like 'today', 'tomorrow', 'next Monday', or 'YYYY-MM-DD'."""
+    """
+    Create a new event on the calendar.
+
+    USE when the user says:
+    - "schedule a meeting", "book an appointment", "add an event"
+    - "put [X] on the calendar", "plan a call at [time]"
+    - "I have a class on Friday", "add a deadline for tomorrow"
+
+    DO NOT use for:
+    - Simple to-dos without a specific time (use add_task)
+    - Setting alarms (use set_alarm)
+
+    Args:
+        title: Name of the event
+        date: Date ("today", "tomorrow", "next Monday", "YYYY-MM-DD")
+        time: Start time (default "09:00")
+        duration: Duration in minutes (default 60)
+    """
     try:
         mgr = get_calendar_manager()
         event_date = parse_date(date)
@@ -196,7 +204,21 @@ def create_calendar_event(title: str, date: str = "today", time: str = "09:00", 
 
 @tool
 def add_task(text: str) -> str:
-    """Add a new task or to-do item to the task list. Use when the user wants to remember, track, or schedule something they need to do. Accepts any task description text like 'buy groceries' or 'finish homework'."""
+    """
+    Add a new task or to-do item to the task list.
+
+    USE when the user says:
+    - "add a task", "note this down", "don't forget to [X]", "remember to [X]"
+    - "put [X] on my list", "add to my to-do", "track [X]"
+    - "remind me to [X]" (without a specific time)
+
+    DO NOT use for:
+    - Events with a specific time (use create_calendar_event)
+    - Reading tasks (use get_tasks)
+
+    Args:
+        text: The task description to add
+    """
     try:
         mgr = get_task_manager()
         if not text.strip():
@@ -211,7 +233,20 @@ def add_task(text: str) -> str:
 
 @tool
 def get_tasks() -> str:
-    """Retrieve and display all tasks from the to-do list, showing both pending and completed items. Use when the user asks what they need to do, checks their task list, or reviews their progress."""
+    """
+    Retrieve and display all pending and completed tasks.
+
+    USE when the user says:
+    - "what are my tasks?", "show my to-do list", "what do I have to do?"
+    - "what's pending?", "check my tasks", "any tasks?", "what's on my list?"
+
+    DO NOT use for:
+    - Calendar events (use get_system_info)
+    - Adding new tasks (use add_task)
+
+    Returns a formatted list with pending and completed tasks, usable in
+    subsequent steps for prioritization or reporting.
+    """
     try:
         mgr = get_task_manager()
         tasks = mgr.get_tasks()
@@ -239,7 +274,23 @@ def get_tasks() -> str:
 
 @tool
 def web_search(query: str) -> str:
-    """Search the internet using DuckDuckGo for real-time information, news, facts, or answers. Use for general knowledge questions like 'what is', 'who is', 'where is', geography, history, current events, definitions, or any factual lookup. Also use for weather queries ('weather in Delhi', 'temperature today'), finding latest information ('latest news', 'recent research'), searching for models or technologies ('latest AI models', 'new image models'), or when no other specific tool matches. This is a general-purpose search tool. Returns top results with titles and snippets."""
+    """
+    Search the internet for real-time information using DuckDuckGo.
+
+    USE when the user asks for:
+    - Current/recent information: "latest news about X", "what happened with X"
+    - Weather: "weather in [city]", "temperature in [place] today"
+    - Specific facts you don't know with certainty: stats, prices, scores
+    - External content: "find articles about X", "look up X"
+
+    DO NOT use for:
+    - Casual conversation or greetings ("hello", "how are you")
+    - Questions you can answer from your own knowledge (history, definitions, explanations)
+    - Tasks that have dedicated tools (alarms, calendar, email, apps)
+    - When the user hasn't asked you to search for anything
+
+    Returns the top 3 search results with titles and snippets.
+    """
     try:
         from ddgs import DDGS
         with DDGS() as ddgs:
@@ -260,21 +311,26 @@ def web_search(query: str) -> str:
 
 @tool
 def get_system_info() -> str:
-    """Get a comprehensive system status overview including the current date and time, active timers and their remaining time, scheduled alarms, today's calendar events, and pending tasks. Use when the user asks 'what time is it', 'what day is it', 'what's my schedule', 'what's going on', or wants a full status summary."""
+    """
+    Get a full status overview: current date/time, scheduled alarms, today's
+    calendar events, and pending tasks.
+
+    USE when the user asks:
+    - "what time is it?", "what's the date?", "what day is today?"
+    - "what's my schedule?", "what's on today?", "give me a status update"
+    - "what do I have going on?", "what's happening today?"
+
+    DO NOT use for:
+    - Only adding things (use add_task / set_alarm / create_calendar_event)
+    - Only reading tasks (use get_tasks if no schedule context is needed)
+
+    Returns current time, upcoming alarms, today's events, and pending tasks.
+    Useful as a first step before making scheduling decisions.
+    """
     try:
         parts = []
         now = datetime.now()
         parts.append(f"Time: {now.strftime('%Y-%m-%d %H:%M:%S')}")
-        
-        # Timers
-        try:
-            timers = get_timer_manager().get_active_timers()
-            if timers:
-                parts.append("Timers: " + ", ".join(f"{t['label']} ({t['remaining']})" for t in timers))
-            else:
-                parts.append("No active timers.")
-        except:
-            pass
         
         # Alarms
         try:
@@ -314,7 +370,19 @@ def get_system_info() -> str:
 
 @tool
 def send_email(subject: str, body: str) -> str:
-    """Send an email through Gmail with a subject and body. Use when the user wants to email someone, send a message, compose a mail, or forward information. Requires Gmail credentials configured in .env."""
+    """
+    Send an email via Gmail.
+
+    USE when the user explicitly says:
+    - "send an email", "email [someone] about X", "compose a mail"
+    - "mail this to [address]", "send a message via email"
+
+    DO NOT use for:
+    - Reading emails (use read_emails)
+    - Casual messaging — this sends a real email via Gmail
+
+    Requires GMAIL_ADDRESS and GMAIL_APP_PASSWORD in .env.
+    """
     try:
         svc = get_email_service()
         if svc.send_reminder(subject, body):
@@ -326,7 +394,20 @@ def send_email(subject: str, body: str) -> str:
 
 @tool
 def open_app(app_name: str) -> str:
-    """Launch and open a desktop application or program by name. Use when the user wants to start, launch, or open an app, application, program, or software. Examples: 'open Chrome', 'start Spotify', 'launch Discord', 'run Notepad', 'open browser', 'start VS Code', 'launch Firefox'. Works with any installed desktop application on Windows."""
+    """
+    Launch a desktop application by name.
+
+    USE when the user says:
+    - "open [app]", "launch [app]", "start [app]", "run [app]"
+    - Examples: "open Chrome", "start Spotify", "launch Discord",
+      "open VS Code", "run Notepad", "start Steam"
+
+    DO NOT use for:
+    - Shell commands (use run_command)
+    - Opening files (use run_command with the file path)
+
+    Works with any installed Windows desktop application.
+    """
     try:
         from AppOpener import open as app_open
         app_open(app_name)
@@ -339,7 +420,21 @@ def open_app(app_name: str) -> str:
 
 @tool
 def run_command(command: str) -> str:
-    """Execute a safe terminal or shell command on the system and return the output. Use for system operations like checking disk space, listing files, getting IP address, checking current directory, running scripts, or executing shell commands. Examples: 'pwd' for current directory, 'dir' to list files, 'ipconfig' for network info, 'python script.py' to run Python. Dangerous commands (rm, del, format, shutdown) are blocked for safety."""
+    """
+    Execute a shell/terminal command and return its output.
+
+    USE when the user asks to:
+    - Run a specific terminal command: "run 'dir'", "execute 'ipconfig'"
+    - Check system info via CLI: "what's my IP?", "check disk space"
+    - Run a Python script: "run my_script.py"
+
+    DO NOT use for:
+    - Opening apps (use open_app)
+    - Anything the user didn't explicitly ask to run
+    - Destructive commands are blocked (rm, del, format, shutdown, etc.)
+
+    Returns up to 500 chars of stdout/stderr output.
+    """
     import subprocess
 
     # Block dangerous commands
@@ -377,68 +472,25 @@ def run_command(command: str) -> str:
 
 
 @tool
-def search_stackoverflow(query: str) -> str:
-    """Search Stack Overflow for programming questions, coding solutions, and technical answers. Use when the user asks 'how to' do something in code, needs debugging help, code examples, error message fixes, or software development questions like 'how to reverse a list in python'. Returns relevant Q&A excerpts."""
-    import requests
-
-    try:
-        resp = requests.get(
-            "https://api.stackexchange.com/2.3/search/excerpts",
-            params={"order": "desc", "sort": "relevance", "q": query, "site": "stackoverflow", "pagesize": 3},
-            timeout=10
-        )
-        data = resp.json()
-        items = data.get("items", [])
-
-        if not items:
-            return f"No Stack Overflow results for '{query}'."
-
-        lines = [f"Stack Overflow results for '{query}':"]
-        for i, item in enumerate(items, 1):
-            title = item.get("title", "").replace("&#39;", "'").replace("&quot;", '"')
-            excerpt = item.get("excerpt", "")[:200].replace("<span class=\"highlight\">", "").replace("</span>", "")
-            lines.append(f"{i}. {title}")
-            if excerpt:
-                lines.append(f"   {excerpt}")
-
-        return "\n".join(lines)
-    except Exception as e:
-        return f"Stack Overflow search failed: {e}"
-
-
-@tool
-def search_arxiv(query: str, max_results: int = 3) -> str:
-    """Search arXiv for academic research papers, preprints, and scientific publications. Use when the user asks about research papers, scientific studies, ML papers, academic literature, or wants to find papers on a topic. Examples: 'research paper on transformers', 'latest papers on OpenCV', 'find ML papers about attention', 'arXiv search for neural networks'. Returns paper titles, authors, dates, and summaries."""
-    import arxiv
-
-    try:
-        search = arxiv.Search(query=query, max_results=max_results, sort_by=arxiv.SortCriterion.Relevance)
-        results = list(search.results())
-
-        if not results:
-            return f"No arXiv papers found for '{query}'."
-
-        lines = [f"arXiv results for '{query}':"]
-        for i, paper in enumerate(results, 1):
-            lines.append(f"{i}. {paper.title}")
-            lines.append(f"   Authors: {', '.join(a.name for a in paper.authors[:3])}")
-            lines.append(f"   Published: {paper.published.strftime('%Y-%m-%d')}")
-            lines.append(f"   URL: {paper.entry_id}")
-            summary = paper.summary[:150].replace("\n", " ")
-            lines.append(f"   {summary}...")
-
-        return "\n".join(lines)
-    except Exception as e:
-        return f"arXiv search failed: {e}"
-
-
-
-
-
-
-@tool
 def read_emails(count: int = 5, filter_type: str = "unread") -> str:
-    """Read and display recent emails from the Gmail inbox. Can filter by unread, today's messages, or all mail. Use when the user wants to check their inbox, see new messages, or review recent correspondence."""
+    """
+    Read recent emails from the Gmail inbox.
+
+    USE when the user says:
+    - "check my email", "any new emails?", "what's in my inbox?"
+    - "show unread messages", "read my emails", "any mail today?"
+    - "check emails from today", "show all recent emails"
+
+    DO NOT use for:
+    - Sending emails (use send_email)
+    - Unless the user explicitly asks to read/check email
+
+    Args:
+        count: How many emails to fetch (default 5)
+        filter_type: "unread" (default), "today", or "all"
+
+    Returns sender, subject, and date for each email.
+    """
     import imaplib
     import email
     from email.header import decode_header
@@ -506,7 +558,6 @@ def read_emails(count: int = 5, filter_type: str = "unread") -> str:
 
 ALL_TOOLS = [
     # Productivity
-    set_timer,
     set_alarm,
     create_calendar_event,
     add_task,
@@ -517,8 +568,6 @@ ALL_TOOLS = [
     run_command,
     # Research
     web_search,
-    search_stackoverflow,
-    search_arxiv,
     # Communication
     send_email,
     read_emails,

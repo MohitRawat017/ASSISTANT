@@ -21,79 +21,6 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 
-# ── Timer Manager Tests ───────────────────────────────────────────────────
-
-class TestTimerManager:
-    """Tests for TimerManager."""
-    
-    def test_add_timer(self):
-        """Test adding a timer."""
-        from src.managers.timer_manager import TimerManager
-        
-        # TimerManager doesn't take db_path - it's in-memory
-        mgr = TimerManager()
-        
-        # add_timer returns an ActiveTimer object, not an ID
-        timer = mgr.add_timer("Test Timer", 300)  # 5 minutes
-        assert timer is not None
-        assert timer.label == "Test Timer"
-        assert timer.duration_seconds == 300
-    
-    def test_get_active_timers(self):
-        """Test getting active timers."""
-        from src.managers.timer_manager import TimerManager
-        
-        mgr = TimerManager()
-        
-        mgr.add_timer("Timer 1", 60)
-        mgr.add_timer("Timer 2", 120)
-        
-        timers = mgr.get_active_timers()
-        assert len(timers) >= 2
-    
-    def test_cancel_timer(self):
-        """Test canceling a timer."""
-        from src.managers.timer_manager import TimerManager
-        
-        mgr = TimerManager()
-        
-        mgr.add_timer("To Cancel", 300)
-        # cancel_timer takes label, not timer_id
-        result = mgr.cancel_timer("To Cancel")
-        
-        assert result is True
-        
-        # Verify timer is no longer active
-        timers = mgr.get_active_timers()
-        active_labels = [t.get("label") for t in timers]
-        assert "To Cancel" not in active_labels
-    
-    def test_timer_remaining_time(self):
-        """Test timer remaining time calculation."""
-        from src.managers.timer_manager import TimerManager, ActiveTimer
-        import time
-        
-        mgr = TimerManager()
-        timer = mgr.add_timer("Quick Timer", 10)
-        
-        # Check timer has remaining time
-        assert timer.remaining_seconds <= 10
-        assert timer.remaining_seconds >= 0
-    
-    def test_timer_format(self):
-        """Test timer formatting."""
-        from src.managers.timer_manager import ActiveTimer
-        
-        timer = ActiveTimer(
-            label="Test",
-            duration_seconds=3661,  # 1h 1m 1s
-            start_time=0
-        )
-        
-        formatted = timer.format_duration()
-        assert "1h" in formatted
-
-
 # ── Alarm Manager Tests ───────────────────────────────────────────────────
 
 class TestAlarmManager:
@@ -535,25 +462,3 @@ class TestEdgeCases:
         # Should still add (may fire immediately or next day)
         alarm_id = mgr.add_alarm("00:01", "Past Alarm")
         assert alarm_id is not None
-    
-    def test_negative_timer_duration(self, tmp_path):
-        """Test timer with negative duration."""
-        from src.managers.timer_manager import TimerManager
-        
-        mgr = TimerManager()
-        
-        # Timer with negative or zero duration - should still create
-        # but will be expired immediately
-        timer = mgr.add_timer("Negative Timer", -10)
-        assert timer is not None
-        assert timer.is_expired is True
-    
-    def test_timer_cancel_nonexistent(self):
-        """Test canceling a timer that doesn't exist."""
-        from src.managers.timer_manager import TimerManager
-        
-        mgr = TimerManager()
-        
-        # Should return False for nonexistent timer
-        result = mgr.cancel_timer("nonexistent_timer")
-        assert result is False

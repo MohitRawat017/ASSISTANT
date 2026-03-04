@@ -32,8 +32,8 @@ def main():
             console.print(f"[bold yellow]ASR unavailable: {e}[/bold yellow]")
 
     try:
-        from src.tools.decision_router import route_query
-        console.print("[bold green]Tsuzi ready.[/bold green]")
+        from src.graph.agent import run_agent
+        console.print("[bold green]Tsuzi (V2) ready.[/bold green]")
     except Exception as e:
         console.print(f"[bold red]Failed to load pipeline: {e}[/bold red]")
         return
@@ -54,7 +54,7 @@ def main():
                     continue
 
             t_start = time.perf_counter()
-            response = route_query(user_input)
+            response = run_agent(user_input)
             elapsed = time.perf_counter() - t_start
 
             console.print(f"\n[bold magenta]Tsuzi:[/bold magenta] {response}\n")

@@ -81,7 +81,7 @@ The majority of practical voice commands (set timer, open app, web search) resol
 ## Capabilities
 
 ### Productivity
-- Set timers and alarms with natural language durations
+- Set alarms with natural language durations
 - Create and query tasks via a local SQLite task list
 - Schedule calendar events with natural language dates
 
@@ -92,8 +92,6 @@ The majority of practical voice commands (set timer, open app, web search) resol
 
 ### Research
 - Real-time web search via DuckDuckGo (no API key required)
-- Academic paper search via arXiv
-- Stack Overflow code search
 
 ### Communication
 - Send and read Gmail with app-password auth
@@ -151,12 +149,10 @@ src/
 ├── main.py                    # Entry point
 ├── tools/
 │   ├── pre_filter.py          # Layer 0 — casual query detection
-│   ├── intent_router.py       # Layer 1 — MiniLM intent classification
-│   ├── tools_by_category.py   # Layer 2 — tool category mapping
-│   ├── tool_router.py         # Layer 3 — FunctionGemma tool selection
-│   ├── decision_router.py     # Layer 4 — pipeline orchestrator
 │   ├── tool_retriever.py      # Embedding-based retrieval (fallback path)
 │   └── wrapped_tools.py       # All tool implementations
+├── graph/
+│   └── agent.py               # LangGraph Agent logic
 ├── managers/
 │   ├── task_manager.py
 │   ├── alarm_manager.py
@@ -186,9 +182,9 @@ You: set a timer for 10 minutes
 → MiniLM: productivity (0.94) → FunctionGemma: set_timer(duration="10 minutes")
 Tsuzi: Timer set for 10 minutes, master.
 
-You: find papers on diffusion models
-→ MiniLM: research (0.91) → FunctionGemma: search_arxiv(query="diffusion models")
-Tsuzi: Found 3 papers on diffusion models...
+You: find information on recent news
+→ System: web_search(query="recent news")
+Tsuzi: Found 3 articles on recent news...
 
 You: open spotify
 → MiniLM: system (0.97) → FunctionGemma: open_app(app_name="spotify")

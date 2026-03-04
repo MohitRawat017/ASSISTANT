@@ -25,11 +25,12 @@ faster-whisper>=1.0.0
 # -------------------------
 # TTS
 # -------------------------
-qwen-tts
-# Optional (only needed if you switch to KokoroTTS)
-kokoro
-kittentts
 
+qwen-tts
+kokoro==0.9.2
+misaki==0.9.3
+espeakng-loader
+kittentts
 # -------------------------
 # Router (src/router.py) — Tier 1 only
 # -------------------------
@@ -39,16 +40,13 @@ huggingface_hub>=0.23.0
 # -------------------------
 # LangGraph Agent (Tier 2)
 # -------------------------
-langgraph
-langchain-core
+langgraph>=0.2.0
+langchain-core>=0.2.0
 langchain-ollama>=0.1.0
-langchain-groq
-langgraph-checkpoint-sqlite
+langchain-groq>=0.1.0
+langgraph-checkpoint-sqlite>=1.0.0
 
-# -------------------------
-# Tool Retrieval (embedding-based)
-# -------------------------
-sentence-transformers>=2.2.0
+
 
 # -------------------------
 # Spotify
@@ -78,7 +76,6 @@ pyautogui>=0.9.54              # Screenshot, minimize all
 # -------------------------
 # Research Tools
 # -------------------------
-arxiv>=2.1.0                   # Academic paper search
 trafilatura>=1.6.0             # Webpage summarization
 youtube-search-python>=1.6.6   # YouTube search
 
