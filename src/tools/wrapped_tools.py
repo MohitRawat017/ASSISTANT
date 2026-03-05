@@ -1,27 +1,17 @@
-"""
-LangGraph tools wrapping the existing managers.
-
-IMPORTANT: The docstrings below are used for BOTH:
-1. The LLM — to decide which tool to call and how to fill args
-2. The embedding retriever — to match user queries to relevant tools
-
-So keep docstrings specific, action-oriented, and rich with trigger
-phrases. Vague docstrings = wrong tools getting selected.
-"""
-
 import os
 import re
 from datetime import datetime, timedelta
 from langchain_core.tools import tool
 from src.utils.config import Config
 
-
-# Manager instances (lazy-loaded)
 alarm_mgr = None
 memory_store = None
 
 
 def get_alarm_manager():
+    """
+    Get or create the AlarmManager singleton.
+    """
     global alarm_mgr
     if alarm_mgr is None:
         from src.managers.alarm_manager import AlarmManager
@@ -30,7 +20,6 @@ def get_alarm_manager():
 
 
 def get_memory_store():
-    """Get the long-term memory store instance."""
     global memory_store
     if memory_store is None:
         from src.memory import LongTermMemory
@@ -38,22 +27,38 @@ def get_memory_store():
     return memory_store
 
 
-# Helpers
 def parse_duration(duration_str: str) -> int:
-    """Parse '10 minutes', '1 hour', etc. to seconds."""
+    """
+    Parse a human-readable duration string into seconds.
+    
+    EXAMPLES:
+    - "10 minutes" → 600
+    - "1 hour" → 3600
+    - "90 seconds" → 90
+    - "5" → 300 (defaults to minutes if no unit)
+    
+    Args:
+        duration_str: Human-readable duration string
+        
+    Returns:
+        Duration in seconds
+    """
     duration_str = duration_str.lower().strip()
     total = 0
 
+    # Regex patterns for different time units
+    # Each pattern captures a number followed by optional unit
     patterns = [
-        (r'(\d+)\s*h(?:our)?s?', 3600),
-        (r'(\d+)\s*m(?:in(?:ute)?s?)?', 60),
-        (r'(\d+)\s*s(?:ec(?:ond)?s?)?', 1),
+        (r'(\d+)\s*h(?:our)?s?', 3600),      # hours
+        (r'(\d+)\s*m(?:in(?:ute)?s?)?', 60), # minutes
+        (r'(\d+)\s*s(?:ec(?:ond)?s?)?', 1),  # seconds
     ]
     for pattern, multiplier in patterns:
         match = re.search(pattern, duration_str)
         if match:
             total += int(match.group(1)) * multiplier
 
+    # If no units found, assume minutes
     if total == 0:
         nums = re.findall(r'\d+', duration_str)
         if nums:
@@ -62,49 +67,88 @@ def parse_duration(duration_str: str) -> int:
 
 
 def normalize_time(time_str: str) -> str:
-    """Normalize time to HH:MM format."""
+    """
+    Normalize a time string to 24-hour HH:MM format.
+    
+    EXAMPLES:
+    - "7am" → "07:00"
+    - "2:30pm" → "14:30"
+    - "14:30" → "14:30" (already normalized)
+    - "12am" → "00:00" (midnight)
+    - "12pm" → "12:00" (noon)
+    
+    Args:
+        time_str: Time in various formats
+        
+    Returns:
+        Time in HH:MM (24-hour format)
+    """
     time_str = time_str.lower().strip()
+    # Match: hour, optional minutes, optional am/pm
     match = re.match(r'(\d{1,2}):?(\d{2})?\s*(am|pm)?', time_str)
     if match:
         hour = int(match.group(1))
         minute = int(match.group(2)) if match.group(2) else 0
         period = match.group(3)
+        
+        # Convert 12-hour to 24-hour
         if period == 'pm' and hour < 12:
             hour += 12
         elif period == 'am' and hour == 12:
-            hour = 0
+            hour = 0  # 12am = midnight
+            
         return f"{hour:02d}:{minute:02d}"
     return time_str
 
 
 def parse_date(date_str: str) -> str:
-    """Parse date string to YYYY-MM-DD."""
+    """
+    Parse a date string into YYYY-MM-DD format.
+    
+    EXAMPLES:
+    - "today" → today's date
+    - "tomorrow" → tomorrow's date
+    - "next monday" → next Monday's date
+    - "2025-03-15" → "2025-03-15" (already normalized)
+    
+    Args:
+        date_str: Date in various formats
+        
+    Returns:
+        Date in YYYY-MM-DD format
+    """
     date_str = date_str.lower().strip()
+    
+    # Try ISO format first
     try:
         return datetime.strptime(date_str, "%Y-%m-%d").strftime("%Y-%m-%d")
     except ValueError:
         pass
 
     today = datetime.now()
+    
+    # Relative dates
     if date_str in ("today", ""):
         return today.strftime("%Y-%m-%d")
     if date_str == "tomorrow":
         return (today + timedelta(days=1)).strftime("%Y-%m-%d")
 
+    # Day names (e.g., "monday", "next friday")
     days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
     for i, day in enumerate(days):
         if day in date_str:
             ahead = i - today.weekday()
             if ahead <= 0:
-                ahead += 7
+                ahead += 7  # Move to next week
             if "next" in date_str:
-                ahead += 7
+                ahead += 7  # Skip a week
             return (today + timedelta(days=ahead)).strftime("%Y-%m-%d")
 
     return today.strftime("%Y-%m-%d")
 
 
-# Tools
+# PRODUCTIVITY TOOLS
+
 @tool
 def set_alarm(time: str, label: str = "Alarm") -> str:
     """
@@ -115,26 +159,33 @@ def set_alarm(time: str, label: str = "Alarm") -> str:
     - "alert me at noon", "alarm for 9", "set a reminder for 10pm"
 
     DO NOT use for:
-    - Durations ("in 10 minutes") — there is no timer tool
     - Adding tasks or calendar events — use add_task or create_calendar_event
 
     Args:
         time: Time of day in any format ("7am", "14:30", "6:30 pm")
-        label: Optional alarm label
+        label: Optional alarm label (default: "Alarm")
+        
+    Returns:
+        Confirmation message or error
     """
     try:
         mgr = get_alarm_manager()
         normalized = normalize_time(time)
+        
+        # Add alarm to SQLite database
         alarm_id = mgr.add_alarm(normalized, label)
 
         if alarm_id:
+            # Register with Windows Task Scheduler for reliable delivery
+            # This ensures alarm fires even if the app is closed
             try:
                 from src.scheduler_windows import WindowsScheduler
                 task_name = WindowsScheduler.register_alarm(alarm_id, normalized, label)
                 if task_name:
                     mgr.set_scheduled_task(alarm_id, task_name)
             except:
-                pass
+                pass  # Windows scheduler is optional
+                
             return f"Alarm set for {normalized}" + (f" ({label})" if label != "Alarm" else "") + "."
         return "Failed to set alarm."
     except Exception as e:
@@ -144,32 +195,37 @@ def set_alarm(time: str, label: str = "Alarm") -> str:
 @tool
 def web_search(query: str) -> str:
     """
-    Search the internet for real-time information using DuckDuckGo.
+    Search the internet for real-time information.
 
     USE when the user asks for:
-    - Current/recent information: "latest news about X", "what happened with X"
+    - Current/recent information: "latest news about X", "what happened with X", Datese
     - Weather: "weather in [city]", "temperature in [place] today"
     - Specific facts you don't know with certainty: stats, prices, scores
     - External content: "find articles about X", "look up X"
 
     DO NOT use for:
     - Casual conversation or greetings ("hello", "how are you")
-    - Questions you can answer from your own knowledge (history, definitions, explanations)
+    - Questions you can answer from your own knowledge (history, definitions)
     - Tasks that have dedicated tools (alarms, calendar, email, apps)
     - When the user hasn't asked you to search for anything
 
-    Returns the top 3 search results with titles and snippets.
+    Args:
+        query: Search query string
+        
+    Returns:
+        Top 3 search results with titles and snippets
     """
     try:
         from ddgs import DDGS
         with DDGS() as ddgs:
+            # Get top 5 results, return top 3
             results = list(ddgs.text(query, max_results=5))
 
         if results:
             lines = [f"Results for '{query}':"]
             for i, r in enumerate(results[:3], 1):
                 lines.append(f"{i}. {r.get('title', '')}")
-                body = r.get("body", "")[:200]
+                body = r.get("body", "")[:200]  # Truncate long snippets
                 if body:
                     lines.append(f"   {body}")
             return "\n".join(lines)
@@ -193,15 +249,15 @@ def get_system_info() -> str:
     - Only adding things (use add_task / set_alarm / create_calendar_event)
     - Only reading tasks (use get_tasks if no schedule context is needed)
 
-    Returns current time, upcoming alarms, today's Google Calendar events,
-    and pending Google Tasks.
+    Returns:
+        Multi-line string with time, alarms, calendar events, and tasks
     """
     try:
         parts = []
         now = datetime.now()
         parts.append(f"Time: {now.strftime('%Y-%m-%d %H:%M:%S')}")
 
-        # Alarms
+        # Get alarms from local SQLite
         try:
             alarms = get_alarm_manager().get_alarms()
             if alarms:
@@ -211,7 +267,7 @@ def get_system_info() -> str:
         except:
             pass
 
-        # Google Calendar — today's events
+        # Get Google Calendar events for today
         try:
             from src.tools.google.calendar_tools import get_upcoming_events as _get_upcoming_events
             events = _get_upcoming_events(max_results=5)
@@ -224,7 +280,7 @@ def get_system_info() -> str:
         except:
             parts.append("Calendar unavailable.")
 
-        # Google Tasks — pending
+        # Get Google Tasks
         try:
             from src.tools.google.tasks_tools import get_google_tasks as _get_google_tasks
             tasks = _get_google_tasks()
@@ -240,6 +296,10 @@ def get_system_info() -> str:
         return f"Failed to get info: {e}"
 
 
+# =============================================================================
+# SYSTEM CONTROL TOOLS
+# =============================================================================
+
 @tool
 def open_app(app_name: str) -> str:
     """
@@ -254,14 +314,161 @@ def open_app(app_name: str) -> str:
     - Shell commands (use run_command)
     - Opening files (use run_command with the file path)
 
-    Works with any installed Windows desktop application.
+    Args:
+        app_name: Name of the application to launch
+        
+    Returns:
+        Confirmation message or error
     """
+    import subprocess
+    
+    # Common app name aliases - maps user input to actual Windows app names
+    APP_ALIASES = {
+        "spotify": "Spotify",
+        "camera": "Windows Camera",
+        "chrome": "Google Chrome",
+        "firefox": "Firefox",
+        "edge": "Microsoft Edge",
+        "vscode": "Visual Studio Code",
+        "vs code": "Visual Studio Code",
+        "code": "Visual Studio Code",
+        "notepad": "Notepad",
+        "calculator": "Calculator",
+        "calc": "Calculator",
+        "discord": "Discord",
+        "steam": "Steam",
+        "vlc": "VLC",
+        "word": "Microsoft Word",
+        "excel": "Microsoft Excel",
+        "powerpoint": "Microsoft PowerPoint",
+        "outlook": "Microsoft Outlook",
+        "teams": "Microsoft Teams",
+        "zoom": "Zoom",
+        "slack": "Slack",
+        "terminal": "Windows Terminal",
+        "cmd": "Command Prompt",
+        "command prompt": "Command Prompt",
+        "powershell": "Windows PowerShell",
+        "settings": "Settings",
+        "control panel": "Control Panel",
+        "file explorer": "File Explorer",
+        "explorer": "File Explorer",
+        "photos": "Microsoft Photos",
+        "paint": "Paint",
+        "store": "Microsoft Store",
+        "music": "Windows Media Player",
+        "media player": "Windows Media Player",
+    }
+    
+    # Normalize app name and check aliases
+    app_name_lower = app_name.lower().strip()
+    resolved_name = APP_ALIASES.get(app_name_lower, app_name)
+    
+    # Method 1: Try AppOpener (best for Windows apps)
     try:
-        from AppOpener import open as app_open
-        app_open(app_name)
-        return f"Opened {app_name}."
+        from AppOpener import open as app_open, close as app_close
+        result = app_open(resolved_name, match_closest=True, output=True)
+        # AppOpener returns a tuple (success_bool, output_str) when output=True
+        if result and result[0]:
+            return f"Opened {resolved_name}."
+        # If AppOpener failed but didn't raise exception, try fallback
+    except ImportError:
+        pass  # AppOpener not installed, use fallback
+    except Exception:
+        pass  # AppOpener failed, use fallback
+    
+    # Method 2: Try Windows 'start' command with subprocess.run for better error capture
+    try:
+        result = subprocess.run(
+            f'start "" "{resolved_name}"',
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        # start command returns 0 even if app not found, so we can't rely on returncode
+        # But at least we tried - return success
+        return f"Opened {resolved_name}."
+    except subprocess.TimeoutExpired:
+        return f"Timeout while trying to open {resolved_name}."
     except Exception as e:
-        return f"Couldn't open {app_name}: {e}"
+        pass  # Try next method
+    
+    # Method 3: Try common installation paths for known apps
+    common_paths = {
+        "spotify": [
+            os.path.expandvars(r"%APPDATA%\Spotify\Spotify.exe"),
+            os.path.expandvars(r"%PROGRAMFILES%\Spotify\Spotify.exe"),
+            os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WindowsApps\Spotify.exe"),
+        ],
+        "chrome": [
+            os.path.expandvars(r"%PROGRAMFILES%\Google\Chrome\Application\chrome.exe"),
+            os.path.expandvars(r"%PROGRAMFILES(X86)%\Google\Chrome\Application\chrome.exe"),
+            os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+        ],
+        "firefox": [
+            os.path.expandvars(r"%PROGRAMFILES%\Mozilla Firefox\firefox.exe"),
+            os.path.expandvars(r"%PROGRAMFILES(X86)%\Mozilla Firefox\firefox.exe"),
+        ],
+        "discord": [
+            os.path.expandvars(r"%LOCALAPPDATA%\Discord\app-*\Discord.exe"),
+            os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WindowsApps\Discord.exe"),
+        ],
+        "visual studio code": [
+            os.path.expandvars(r"%LOCALAPPDATA%\Programs\Microsoft VS Code\Code.exe"),
+            os.path.expandvars(r"%PROGRAMFILES%\Microsoft VS Code\Code.exe"),
+        ],
+    }
+    
+    # Check if we have known paths for this app
+    for app_key, paths in common_paths.items():
+        if app_key in app_name_lower:
+            for path in paths:
+                # Handle wildcards (e.g., app-*)
+                if "*" in path:
+                    import glob
+                    matches = glob.glob(path)
+                    if matches:
+                        path = matches[0]
+                    else:
+                        continue
+                
+                if os.path.exists(path):
+                    try:
+                        subprocess.Popen([path], shell=False)
+                        return f"Opened {resolved_name}."
+                    except Exception:
+                        continue
+    
+    # Method 4: Try using 'where' command to find executable
+    try:
+        where_result = subprocess.run(
+            f'where {resolved_name}',
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if where_result.returncode == 0 and where_result.stdout.strip():
+            exe_path = where_result.stdout.strip().split('\n')[0]
+            subprocess.Popen([exe_path], shell=False)
+            return f"Opened {resolved_name}."
+    except Exception:
+        pass
+    
+    # All methods failed
+    suggestions = []
+    for alias in APP_ALIASES:
+        if app_name_lower in alias or alias in app_name_lower:
+            suggestions.append(APP_ALIASES[alias])
+    
+    error_msg = f"Couldn't find or open '{app_name}'."
+    if suggestions:
+        error_msg += f" Did you mean: {', '.join(suggestions[:3])}?"
+    else:
+        error_msg += " Try specifying the full app name or installing AppOpener: pip install AppOpener"
+    
+    return error_msg
 
 
 @tool
@@ -279,11 +486,16 @@ def run_command(command: str) -> str:
     - Anything the user didn't explicitly ask to run
     - Destructive commands are blocked (rm, del, format, shutdown, etc.)
 
-    Returns up to 500 chars of stdout/stderr output.
+    Args:
+        command: Shell command to execute
+        
+    Returns:
+        Command output (up to 500 chars) or error message
     """
     import subprocess
 
-    # Block dangerous commands
+    # SAFETY: Block potentially destructive commands
+    # This prevents accidental data loss or system damage
     blocked = ["rm ", "del ", "format", "rmdir", "shutdown", "restart",
                "reg delete", "taskkill", "> nul", "mkfs", "dd if="]
     cmd_lower = command.lower()
@@ -297,7 +509,7 @@ def run_command(command: str) -> str:
             shell=True,
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=10,  # Prevent hanging on long commands
             cwd=Config.BASE_DIR
         )
         output = result.stdout.strip()
@@ -316,7 +528,9 @@ def run_command(command: str) -> str:
         return f"Failed to run command: {str(e)[:200]}"
 
 
-# ── Memory Tools ───────────────────────────────────────────────────────
+# =============================================================================
+# MEMORY TOOLS
+# =============================================================================
 
 @tool
 def save_memory(content: str, category: str = "other") -> str:
@@ -337,7 +551,11 @@ def save_memory(content: str, category: str = "other") -> str:
 
     Args:
         content: The fact to remember (e.g., "User's name is Mohit")
-        category: Type of fact - "name", "location", "preference", "schedule", "project", "other"
+        category: Type of fact - "name", "location", "preference", 
+                  "schedule", "project", "other"
+        
+    Returns:
+        Confirmation message
     """
     try:
         store = get_memory_store()
@@ -365,8 +583,9 @@ def get_user_context(query: str = "") -> str:
 
     Args:
         query: Optional search term to filter memories (empty = all memories)
-
-    Returns formatted list of stored facts about the user.
+        
+    Returns:
+        Formatted list of stored facts about the user
     """
     try:
         store = get_memory_store()
@@ -384,8 +603,6 @@ def get_user_context(query: str = "") -> str:
     except Exception as e:
         return f"Failed to retrieve memories: {e}"
 
-
-# ── Google Workspace Tools ─────────────────────────────────────────────
 
 from src.tools.google.calendar_tools import (
     create_calendar_event as _create_calendar_event,
@@ -427,7 +644,8 @@ def create_calendar_event(title: str, start_time: str, end_time: str, descriptio
         end_time: ISO format "2025-03-15T11:00:00" (IST assumed)
         description: Optional event description.
 
-    Returns confirmation with Google Calendar link.
+    Returns:
+        Confirmation with Google Calendar link or error
     """
     result = _create_calendar_event(title, start_time, end_time, description)
     if result["success"]:
@@ -451,7 +669,8 @@ def get_upcoming_events(max_results: int = 5) -> str:
     Args:
         max_results: Number of events to return (default 5).
 
-    Returns list of upcoming events with start times.
+    Returns:
+        List of upcoming events with start times
     """
     events = _get_upcoming_events(max_results)
     if not events:
@@ -477,7 +696,11 @@ def add_task(title: str, notes: str = "", due: str = None) -> str:
         title: Task title / description.
         notes: Optional additional notes.
         due: Optional due date "YYYY-MM-DD" (e.g. "2025-03-15")
+        
+    Returns:
+        Confirmation message
     """
+    # Convert date to ISO format expected by Google Tasks API
     if due and len(due) == 10:
         due = due + "T00:00:00.000Z"
     result = _add_google_task(title, notes, due)
@@ -497,7 +720,8 @@ def get_tasks() -> str:
     - Calendar events (use get_upcoming_events or get_system_info)
     - Adding new tasks (use add_task)
 
-    Returns a formatted list of pending tasks.
+    Returns:
+        Formatted list of pending tasks with IDs
     """
     tasks = _get_google_tasks()
     if not tasks:
@@ -518,6 +742,12 @@ def complete_task(task_id: str) -> str:
     - task_id is shown in get_tasks() output in brackets like [abc123]
 
     Requires task_id — call get_tasks() first to find it if needed.
+    
+    Args:
+        task_id: Google Task ID (from get_tasks output)
+        
+    Returns:
+        Confirmation or error message
     """
     result = _complete_google_task(task_id)
     return "Task marked as complete." if result["success"] else f"Failed: {result.get('error', '')}"
@@ -541,7 +771,8 @@ def send_email(to: str, subject: str, body: str) -> str:
         subject: Email subject line.
         body: Email body text.
 
-    Returns confirmation on success.
+    Returns:
+        Confirmation or error message
     """
     result = _send_gmail(to, subject, body)
     return "Email sent successfully." if result["success"] else f"Failed to send email: {result.get('error', '')}"
@@ -563,7 +794,8 @@ def read_emails(max_results: int = 5) -> str:
     Args:
         max_results: Number of unread emails to fetch (default 5).
 
-    Returns sender, subject, and preview for each unread email.
+    Returns:
+        Sender, subject, and preview for each unread email
     """
     emails = _read_unread_emails(max_results)
     if not emails:
@@ -589,14 +821,18 @@ def search_emails(query: str) -> str:
     DO NOT use for:
     - Reading all unread emails (use read_emails)
     - Sending emails (use send_email)
+    
+    Args:
+        query: Gmail search query
+        
+    Returns:
+        List of matching emails with subject and sender
     """
     emails = _search_emails(query)
     if not emails:
         return "No emails found matching that query."
     return "\n".join([f"• {e['subject']} — from {e['from']}" for e in emails])
 
-
-# ── Tool Registry ───────────────────────────────────────────────────────
 
 ALL_TOOLS = [
     # Productivity
