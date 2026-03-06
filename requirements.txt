@@ -43,6 +43,7 @@ huggingface_hub>=0.23.0
 langgraph>=0.2.0
 langchain-core>=0.2.0
 langchain-ollama>=0.1.0
+langchain-openai>=1.1.0
 langchain-groq>=0.1.0
 langgraph-checkpoint-sqlite>=1.0.0
 aiosqlite>=0.19.0
@@ -72,7 +73,10 @@ pyaudio
 # -------------------------
 pycaw>=20181226                # Volume control
 screen-brightness-control>=0.23.0  # Brightness control
-pyautogui>=0.9.54              # Screenshot, minimize all
+pyautogui>=0.9.54              # Screenshot, mouse/keyboard, minimize all
+pywinauto>=0.6.8               # Window management (use backend="uia" for Win11)
+psutil>=5.9.0                  # Process listing and management
+comtypes>=1.2.0                # COM interface for pycaw volume control
 
 # -------------------------
 # Research Tools

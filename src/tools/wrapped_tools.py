@@ -314,6 +314,9 @@ def open_app(app_name: str) -> str:
     - Shell commands (use run_command)
     - Opening files (use run_command with the file path)
 
+    IMPORTANT: After opening an app, wait at least 0.5 seconds before
+    typing or clicking inside it to ensure the window is fully loaded.
+
     Args:
         app_name: Name of the application to launch
         
@@ -322,128 +325,74 @@ def open_app(app_name: str) -> str:
     """
     import subprocess
     
-    # Common app name aliases - maps user input to actual Windows app names
-    APP_ALIASES = {
-        "spotify": "Spotify",
-        "camera": "Windows Camera",
-        "chrome": "Google Chrome",
-        "firefox": "Firefox",
-        "edge": "Microsoft Edge",
-        "vscode": "Visual Studio Code",
-        "vs code": "Visual Studio Code",
-        "code": "Visual Studio Code",
-        "notepad": "Notepad",
-        "calculator": "Calculator",
-        "calc": "Calculator",
-        "discord": "Discord",
-        "steam": "Steam",
-        "vlc": "VLC",
-        "word": "Microsoft Word",
-        "excel": "Microsoft Excel",
-        "powerpoint": "Microsoft PowerPoint",
-        "outlook": "Microsoft Outlook",
-        "teams": "Microsoft Teams",
-        "zoom": "Zoom",
-        "slack": "Slack",
-        "terminal": "Windows Terminal",
-        "cmd": "Command Prompt",
-        "command prompt": "Command Prompt",
-        "powershell": "Windows PowerShell",
-        "settings": "Settings",
-        "control panel": "Control Panel",
-        "file explorer": "File Explorer",
-        "explorer": "File Explorer",
-        "photos": "Microsoft Photos",
-        "paint": "Paint",
-        "store": "Microsoft Store",
-        "music": "Windows Media Player",
-        "media player": "Windows Media Player",
-    }
+    # Import the single source of truth for app mappings
+    from src.tools.pc_automation.app_launcher import APP_MAP, is_app_running
     
-    # Normalize app name and check aliases
     app_name_lower = app_name.lower().strip()
-    resolved_name = APP_ALIASES.get(app_name_lower, app_name)
     
-    # Method 1: Try AppOpener (best for Windows apps)
+    # Step 1: Check if app is already running
+    running_check = is_app_running(app_name)
+    if running_check.get("running"):
+        # App is already running - focus it instead of opening new instance
+        from src.tools.pc_automation.window_manager import focus_window
+        # Get the executable name for window matching
+        executable = APP_MAP.get(app_name_lower, app_name)
+        exe_display = executable.replace(".exe", "").replace("ms-settings:", "Settings")
+        focus_result = focus_window(exe_display)
+        if focus_result.get("success"):
+            return f"App was already open, focused it instead, master."
+        # If focus failed, still return that it's running
+        return f"{app_name} is already running, master."
+    
+    # Step 2: Try to open using APP_MAP
+    if app_name_lower in APP_MAP:
+        executable = APP_MAP[app_name_lower]
+        try:
+            if executable.startswith("ms-"):
+                # Windows URI scheme (settings, etc.)
+                os.startfile(executable)
+                return f"Opened {app_name}, master."
+            else:
+                subprocess.Popen(executable)
+                return f"Opened {app_name}, master."
+        except Exception as e:
+            # APP_MAP method failed, continue to fallbacks
+            pass
+    
+    # Step 3: Try AppOpener (for apps not in APP_MAP)
     try:
-        from AppOpener import open as app_open, close as app_close
-        result = app_open(resolved_name, match_closest=True, output=True)
+        from AppOpener import open as app_open
+        result = app_open(app_name, match_closest=True, output=True)
         # AppOpener returns a tuple (success_bool, output_str) when output=True
         if result and result[0]:
-            return f"Opened {resolved_name}."
-        # If AppOpener failed but didn't raise exception, try fallback
+            return f"Opened {app_name}, master."
+        # If AppOpener returned but didn't succeed, explicitly continue
     except ImportError:
-        pass  # AppOpener not installed, use fallback
+        pass  # AppOpener not installed
     except Exception:
-        pass  # AppOpener failed, use fallback
+        pass  # AppOpener failed, try next method
     
-    # Method 2: Try Windows 'start' command with subprocess.run for better error capture
+    # Step 4: Try Windows 'start' command
     try:
         result = subprocess.run(
-            f'start "" "{resolved_name}"',
+            f'start "" "{app_name}"',
             shell=True,
             capture_output=True,
             text=True,
             timeout=10
         )
-        # start command returns 0 even if app not found, so we can't rely on returncode
-        # But at least we tried - return success
-        return f"Opened {resolved_name}."
+        # start command returns 0 even if app not found
+        # But if we got here without exception, assume success
+        return f"Opened {app_name}, master."
     except subprocess.TimeoutExpired:
-        return f"Timeout while trying to open {resolved_name}."
-    except Exception as e:
+        return f"Timeout while trying to open {app_name}."
+    except Exception:
         pass  # Try next method
     
-    # Method 3: Try common installation paths for known apps
-    common_paths = {
-        "spotify": [
-            os.path.expandvars(r"%APPDATA%\Spotify\Spotify.exe"),
-            os.path.expandvars(r"%PROGRAMFILES%\Spotify\Spotify.exe"),
-            os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WindowsApps\Spotify.exe"),
-        ],
-        "chrome": [
-            os.path.expandvars(r"%PROGRAMFILES%\Google\Chrome\Application\chrome.exe"),
-            os.path.expandvars(r"%PROGRAMFILES(X86)%\Google\Chrome\Application\chrome.exe"),
-            os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
-        ],
-        "firefox": [
-            os.path.expandvars(r"%PROGRAMFILES%\Mozilla Firefox\firefox.exe"),
-            os.path.expandvars(r"%PROGRAMFILES(X86)%\Mozilla Firefox\firefox.exe"),
-        ],
-        "discord": [
-            os.path.expandvars(r"%LOCALAPPDATA%\Discord\app-*\Discord.exe"),
-            os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WindowsApps\Discord.exe"),
-        ],
-        "visual studio code": [
-            os.path.expandvars(r"%LOCALAPPDATA%\Programs\Microsoft VS Code\Code.exe"),
-            os.path.expandvars(r"%PROGRAMFILES%\Microsoft VS Code\Code.exe"),
-        ],
-    }
-    
-    # Check if we have known paths for this app
-    for app_key, paths in common_paths.items():
-        if app_key in app_name_lower:
-            for path in paths:
-                # Handle wildcards (e.g., app-*)
-                if "*" in path:
-                    import glob
-                    matches = glob.glob(path)
-                    if matches:
-                        path = matches[0]
-                    else:
-                        continue
-                
-                if os.path.exists(path):
-                    try:
-                        subprocess.Popen([path], shell=False)
-                        return f"Opened {resolved_name}."
-                    except Exception:
-                        continue
-    
-    # Method 4: Try using 'where' command to find executable
+    # Step 5: Try using 'where' command to find executable
     try:
         where_result = subprocess.run(
-            f'where {resolved_name}',
+            f'where {app_name}',
             shell=True,
             capture_output=True,
             text=True,
@@ -452,21 +401,21 @@ def open_app(app_name: str) -> str:
         if where_result.returncode == 0 and where_result.stdout.strip():
             exe_path = where_result.stdout.strip().split('\n')[0]
             subprocess.Popen([exe_path], shell=False)
-            return f"Opened {resolved_name}."
+            return f"Opened {app_name}, master."
     except Exception:
         pass
     
-    # All methods failed
+    # All methods failed - provide suggestions
     suggestions = []
-    for alias in APP_ALIASES:
+    for alias in APP_MAP:
         if app_name_lower in alias or alias in app_name_lower:
-            suggestions.append(APP_ALIASES[alias])
+            suggestions.append(alias)
     
     error_msg = f"Couldn't find or open '{app_name}'."
     if suggestions:
         error_msg += f" Did you mean: {', '.join(suggestions[:3])}?"
     else:
-        error_msg += " Try specifying the full app name or installing AppOpener: pip install AppOpener"
+        error_msg += " Try specifying the full app name."
     
     return error_msg
 
@@ -834,6 +783,259 @@ def search_emails(query: str) -> str:
     return "\n".join([f"• {e['subject']} — from {e['from']}" for e in emails])
 
 
+# =============================================================================
+# PC AUTOMATION TOOLS — Phase 4
+# =============================================================================
+
+from src.tools.pc_automation.screenshot import take_screenshot, take_region_screenshot
+from src.tools.pc_automation.mouse_keyboard import (
+    mouse_click, mouse_move, type_text, press_key, hotkey, scroll, get_screen_size
+)
+from src.tools.pc_automation.window_manager import (
+    get_open_windows, focus_window,
+    minimize_window, maximize_window, minimize_all_windows
+)
+from src.tools.pc_automation.system_controls import (
+    set_volume, get_volume, mute_volume, unmute_volume,
+    set_brightness, get_brightness, lock_screen, get_pc_stats
+)
+from src.tools.pc_automation.app_launcher import (
+    open_application, close_application, is_app_running
+)
+
+
+@tool
+def take_screenshot_tool() -> str:
+    """
+    Take a screenshot of the current screen and save it.
+    Use when user asks to capture screen or take a screenshot.
+    Returns the file path of the saved screenshot.
+    """
+    path = take_screenshot()
+    return f"Screenshot saved to: {path}"
+
+
+@tool
+async def screenshot_to_telegram() -> str:
+    """
+    Take a screenshot and send it to the user on Telegram.
+    Use when user says 'send me a screenshot', 'show me my screen on Telegram', etc.
+    Returns confirmation that screenshot was sent.
+    """
+    path = take_screenshot()
+
+    from src.interfaces.telegram_bot import get_app
+    app = get_app()
+    if app:
+        # Read file bytes with context manager to avoid handle leak
+        with open(path, "rb") as f:
+            photo_bytes = f.read()
+        await app.bot.send_photo(
+            chat_id=Config.TELEGRAM_ALLOWED_USER_ID,
+            photo=photo_bytes,
+            caption="Here's your screen, master."
+        )
+        return "Screenshot sent to Telegram."
+    return f"Screenshot saved locally: {path} (Telegram not available)"
+
+
+@tool
+def close_app(app_name: str) -> str:
+    """
+    Close an application on the PC by name.
+    
+    Use this to CLOSE, QUIT, or TERMINATE a running application.
+    Do NOT use list_open_windows for closing — use this tool instead.
+    
+    Use when user says 'close X', 'quit X', 'kill X', 'stop X'.
+    Returns confirmation or error.
+    """
+    result = close_application(app_name)
+    if result["success"]:
+        return f"Closed {app_name}, master."
+    return f"Could not close {app_name}: {result.get('error', 'not found')}"
+
+
+@tool
+def list_open_windows() -> str:
+    """
+    List all currently open windows on the PC.
+    Use when user asks 'what apps are open', 'what windows do I have open',
+    'what's running', 'list my open programs', etc.
+    Returns a list of open window titles and their processes.
+    """
+    windows = get_open_windows()
+    if not windows:
+        return "No open windows found."
+    seen = set()
+    result = []
+    for w in windows:
+        if w["title"] not in seen:
+            seen.add(w["title"])
+            result.append(f"• {w['title']} ({w['process']})")
+    return "\n".join(result[:20])  # cap at 20 to avoid huge responses
+
+
+@tool
+def focus_app(window_title: str) -> str:
+    """
+    Bring a window to the foreground and focus it.
+    Use when user says 'switch to X', 'bring up X', 'focus X', 'go to X'.
+    window_title: partial window title is fine, case insensitive.
+    Returns confirmation or error.
+    """
+    result = focus_window(window_title)
+    return f"Focused {result.get('window', window_title)}." if result["success"] else result.get("error")
+
+
+@tool
+def control_volume(action: str, level: int = None) -> str:
+    """
+    Control system volume.
+    action: "set" (requires level), "get", "mute", "unmute"
+    level: 0-100, only used when action="set"
+    Examples:
+      control_volume("set", 50) → sets to 50%
+      control_volume("mute")    → mutes
+      control_volume("get")     → returns current level
+    Returns confirmation with volume level.
+    """
+    if action == "set" and level is not None:
+        set_volume(level)
+        return f"Volume set to {level}%, master."
+    elif action == "get":
+        result = get_volume()
+        return f"Current volume: {result['volume']}%"
+    elif action == "mute":
+        mute_volume()
+        return "Volume muted, master."
+    elif action == "unmute":
+        unmute_volume()
+        return "Volume unmuted, master."
+    return "Invalid volume action. Use: set, get, mute, unmute"
+
+
+@tool
+def control_brightness(action: str, level: int = None) -> str:
+    """
+    Control display brightness.
+    action: "set" (requires level), "get"
+    level: 0-100, only used when action="set"
+    Note: Only works on laptop displays or external monitors with DDC/CI support.
+    Returns confirmation with brightness level.
+    """
+    if action == "set" and level is not None:
+        result = set_brightness(level)
+        if result["success"]:
+            return f"Brightness set to {level}%, master."
+        return f"Could not set brightness: {result.get('error')}"
+    elif action == "get":
+        result = get_brightness()
+        if result["success"]:
+            return f"Current brightness: {result['brightness']}%"
+        return f"Could not get brightness: {result.get('error')}"
+    return "Invalid brightness action. Use: set, get"
+
+
+@tool
+def lock_screen_tool() -> str:
+    """
+    Lock the Windows screen immediately.
+    Use when user says 'lock my screen', 'lock the computer', 'lock PC'.
+    Returns confirmation.
+    """
+    lock_screen()
+    return "Screen locked, master."
+
+
+@tool
+def get_pc_status() -> str:
+    """
+    Get current PC system stats: CPU usage, memory, and disk space.
+    Use when user asks about PC performance, system status, resource usage,
+    'how is my PC doing', 'check CPU', 'how much RAM is free', etc.
+    Returns formatted system information.
+    """
+    info = get_pc_stats()
+    return (
+        f"CPU: {info['cpu_percent']}%\n"
+        f"Memory: {info['memory_percent']}% used ({info['memory_available_gb']}GB free)\n"
+        f"Disk: {info['disk_free_gb']}GB free"
+    )
+
+
+@tool
+def click_at(x: int, y: int, button: str = "left") -> str:
+    """
+    Click the mouse at specific screen coordinates.
+    Use when user specifies exact coordinates to click.
+    x, y: screen coordinates (top-left is 0,0)
+    button: "left", "right", or "middle"
+    Returns confirmation.
+    """
+    mouse_click(x, y, button=button)
+    return f"Clicked at ({x}, {y}) with {button} button."
+
+
+@tool
+def type_text_tool(text: str) -> str:
+    """
+    Type text at the current cursor position.
+    Use when user wants to type something in the currently focused app.
+    The app must already be focused and have a text input active.
+    Returns confirmation.
+    """
+    type_text(text)
+    return f"Typed: {text}"
+
+
+@tool
+def press_keyboard_key(key: str) -> str:
+    """
+    Press a keyboard key.
+    Single keys: "enter", "tab", "escape", "backspace", "space",
+                 "up", "down", "left", "right", "delete", "home", "end",
+                 "f1" through "f12"
+    For shortcuts use hotkey_tool instead.
+    Returns confirmation.
+    """
+    press_key(key)
+    return f"Pressed {key}."
+
+
+@tool
+def hotkey_tool(keys: str) -> str:
+    """
+    Press a keyboard shortcut combination.
+    keys: comma-separated key names, e.g. "ctrl,c" or "ctrl,alt,t" or "win,d"
+    Common shortcuts:
+      "ctrl,c"         → copy
+      "ctrl,v"         → paste
+      "ctrl,z"         → undo
+      "ctrl,s"         → save
+      "ctrl,w"         → close tab
+      "alt,f4"         → close window
+      "win,d"          → show desktop
+      "ctrl,shift,esc" → task manager
+    Returns confirmation.
+    """
+    key_list = [k.strip() for k in keys.split(",")]
+    hotkey(*key_list)
+    return f"Pressed hotkey: {' + '.join(key_list)}"
+
+
+@tool
+def minimize_all() -> str:
+    """
+    Minimize all windows and show the desktop.
+    Use when user says 'show desktop', 'minimize everything', 'clear screen',
+    'hide all windows'.
+    Returns confirmation.
+    """
+    minimize_all_windows()
+    return "All windows minimized, master."
+
+
 ALL_TOOLS = [
     # Productivity
     set_alarm,
@@ -855,4 +1057,22 @@ ALL_TOOLS = [
     # Memory
     save_memory,
     get_user_context,
+    # PC Automation — App control
+    close_app,
+    list_open_windows,
+    focus_app,
+    minimize_all,
+    # PC Automation — System controls
+    control_volume,
+    control_brightness,
+    lock_screen_tool,
+    get_pc_status,
+    # PC Automation — Screenshots
+    take_screenshot_tool,
+    screenshot_to_telegram,
+    # PC Automation — Input
+    click_at,
+    type_text_tool,
+    press_keyboard_key,
+    hotkey_tool,
 ]
