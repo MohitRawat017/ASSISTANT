@@ -304,6 +304,7 @@ def get_system_info() -> str:
 def open_app(app_name: str) -> str:
     """
     Launch a desktop application by name.
+    If already running, focuses the existing window instead of opening a new instance.
 
     USE when the user says:
     - "open [app]", "launch [app]", "start [app]", "run [app]"
@@ -323,99 +324,24 @@ def open_app(app_name: str) -> str:
     Returns:
         Confirmation message or error
     """
-    import subprocess
+    result = open_application(app_name)
     
-    # Import the single source of truth for app mappings
-    from src.tools.pc_automation.app_launcher import APP_MAP, is_app_running
-    
-    app_name_lower = app_name.lower().strip()
-    
-    # Step 1: Check if app is already running
-    running_check = is_app_running(app_name)
-    if running_check.get("running"):
-        # App is already running - focus it instead of opening new instance
-        from src.tools.pc_automation.window_manager import focus_window
-        # Get the executable name for window matching
-        executable = APP_MAP.get(app_name_lower, app_name)
-        exe_display = executable.replace(".exe", "").replace("ms-settings:", "Settings")
-        focus_result = focus_window(exe_display)
-        if focus_result.get("success"):
-            return f"App was already open, focused it instead, master."
-        # If focus failed, still return that it's running
-        return f"{app_name} is already running, master."
-    
-    # Step 2: Try to open using APP_MAP
-    if app_name_lower in APP_MAP:
-        executable = APP_MAP[app_name_lower]
-        try:
-            if executable.startswith("ms-"):
-                # Windows URI scheme (settings, etc.)
-                os.startfile(executable)
-                return f"Opened {app_name}, master."
-            else:
-                subprocess.Popen(executable)
-                return f"Opened {app_name}, master."
-        except Exception as e:
-            # APP_MAP method failed, continue to fallbacks
-            pass
-    
-    # Step 3: Try AppOpener (for apps not in APP_MAP)
-    try:
-        from AppOpener import open as app_open
-        result = app_open(app_name, match_closest=True, output=True)
-        # AppOpener returns a tuple (success_bool, output_str) when output=True
-        if result and result[0]:
-            return f"Opened {app_name}, master."
-        # If AppOpener returned but didn't succeed, explicitly continue
-    except ImportError:
-        pass  # AppOpener not installed
-    except Exception:
-        pass  # AppOpener failed, try next method
-    
-    # Step 4: Try Windows 'start' command
-    try:
-        result = subprocess.run(
-            f'start "" "{app_name}"',
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        # start command returns 0 even if app not found
-        # But if we got here without exception, assume success
+    if result.get("success"):
+        if result.get("focused"):
+            return f"{app_name} was already open, focused it for you, master."
         return f"Opened {app_name}, master."
-    except subprocess.TimeoutExpired:
-        return f"Timeout while trying to open {app_name}."
-    except Exception:
-        pass  # Try next method
     
-    # Step 5: Try using 'where' command to find executable
-    try:
-        where_result = subprocess.run(
-            f'where {app_name}',
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
-        if where_result.returncode == 0 and where_result.stdout.strip():
-            exe_path = where_result.stdout.strip().split('\n')[0]
-            subprocess.Popen([exe_path], shell=False)
-            return f"Opened {app_name}, master."
-    except Exception:
-        pass
-    
-    # All methods failed - provide suggestions
+    # Provide suggestions for failed attempts
+    from src.tools.pc_automation.app_launcher import APP_MAP
+    app_name_lower = app_name.lower().strip()
     suggestions = []
     for alias in APP_MAP:
         if app_name_lower in alias or alias in app_name_lower:
             suggestions.append(alias)
     
-    error_msg = f"Couldn't find or open '{app_name}'."
+    error_msg = result.get("error", f"Couldn't open '{app_name}'.")
     if suggestions:
         error_msg += f" Did you mean: {', '.join(suggestions[:3])}?"
-    else:
-        error_msg += " Try specifying the full app name."
     
     return error_msg
 

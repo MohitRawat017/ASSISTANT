@@ -1,6 +1,7 @@
 import subprocess
 import psutil
 import os
+from pywinauto import Desktop
 
 # Common app name → executable mappings for Windows 11
 # This is the single source of truth for app name resolution
@@ -54,14 +55,59 @@ APP_MAP = {
 }
 
 
+def _focus_app_by_process(executable: str) -> bool:
+    """
+    Focus a running application by its executable name.
+    Returns True if successfully focused, False otherwise.
+    """
+    exe_name = executable.lower().replace(".exe", "")
+    desktop = Desktop(backend="uia")
+    
+    for window in desktop.windows():
+        try:
+            pid = window.process_id()
+            proc = psutil.Process(pid)
+            proc_name = proc.name().lower()
+            
+            # Match process name
+            if exe_name in proc_name or proc_name.startswith(exe_name):
+                window.set_focus()
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def open_application(app_name: str) -> dict:
     """
     Opens an application by name.
+    If already running, focuses the existing window instead of opening new instance.
     Tries: known app map → AppOpener → direct subprocess
-    Returns: {"success": True/False, "app": app_name}
+    Returns: {"success": True/False, "app": app_name, "focused": bool}
     """
     name_lower = app_name.lower().strip()
 
+    # Determine the executable name
+    executable = APP_MAP.get(name_lower, app_name)
+    
+    # Check if already running - focus instead of opening new instance
+    running_check = is_app_running(app_name)
+    if running_check.get("running", False):
+        # App is running - try to focus its window
+        if _focus_app_by_process(executable):
+            return {"success": True, "app": app_name, "focused": True, "method": "focus"}
+        # Couldn't focus by process, try by app name in window title
+        desktop = Desktop(backend="uia")
+        for window in desktop.windows():
+            try:
+                title = window.window_text()
+                if name_lower in title.lower():
+                    window.set_focus()
+                    return {"success": True, "app": app_name, "focused": True, "method": "focus_title"}
+            except Exception:
+                continue
+
+    # App not running or couldn't focus - open new instance
     # Try known map first
     if name_lower in APP_MAP:
         executable = APP_MAP[name_lower]
@@ -71,7 +117,7 @@ def open_application(app_name: str) -> dict:
                 os.startfile(executable)
             else:
                 subprocess.Popen(executable)
-            return {"success": True, "app": app_name, "method": "app_map"}
+            return {"success": True, "app": app_name, "method": "app_map", "focused": False}
         except Exception:
             pass  # Fall through to AppOpener
 
@@ -79,14 +125,14 @@ def open_application(app_name: str) -> dict:
     try:
         import appopener
         appopener.open(app_name)
-        return {"success": True, "app": app_name, "method": "appopener"}
+        return {"success": True, "app": app_name, "method": "appopener", "focused": False}
     except Exception:
         pass
 
     # Last resort — direct subprocess
     try:
         subprocess.Popen(app_name)
-        return {"success": True, "app": app_name, "method": "subprocess"}
+        return {"success": True, "app": app_name, "method": "subprocess", "focused": False}
     except Exception as e:
         return {"success": False, "error": f"Could not open '{app_name}': {str(e)}"}
 

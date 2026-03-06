@@ -140,9 +140,9 @@ async def main():
 
     # Agent
     try:
-        from src.graph.agent import initialize_agent, cleanup_agent
+        from src.graph.agent import initialize_agent
         await initialize_agent()
-        console.print("[bold green]Agent initialized with async checkpointer.[/bold green]")
+        console.print("[bold green]Agent initialized with MemorySaver.[/bold green]")
     except Exception as e:
         console.print(f"[bold red]Failed to initialize agent: {e}[/bold red]")
         return  # Can't continue without agent
