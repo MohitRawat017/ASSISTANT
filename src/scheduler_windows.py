@@ -145,7 +145,7 @@ class WindowsScheduler:
                 [
                     "schtasks", "/create",
                     "/tn", task_name,           # Task name
-                    "/tr", bat_path,            # Program to run (.bat)
+                    "/tr", f'"{bat_path}"',     # Program to run (.bat), quoted for spaces in path
                     "/sc", "once",              # Schedule: one time
                     "/st", schedule_time,       # Start time (HH:MM)
                     "/sd", schedule_date,       # Start date (MM/DD/YYYY)

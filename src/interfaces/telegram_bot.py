@@ -231,7 +231,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         # Call the agent with the user's message
-        response = await arun_agent(user_text, thread_id=thread_id)
+        response = await arun_agent(
+            user_text,
+            thread_id=thread_id,
+            source="telegram_text",
+        )
         
         # Send the response
         await update.message.reply_text(response)
@@ -300,7 +304,11 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Heard: {transcribed_text}")
 
         # Process with agent
-        response = await arun_agent(transcribed_text, thread_id=thread_id)
+        response = await arun_agent(
+            transcribed_text,
+            thread_id=thread_id,
+            source="telegram_voice",
+        )
         await update.message.reply_text(response)
 
     except Exception as e:
@@ -479,6 +487,7 @@ async def morning_digest(context: ContextTypes.DEFAULT_TYPE):
             "Give me a brief morning summary: my tasks for today and current weather in Una. "
             "Keep it under 5 lines.",
             thread_id=thread_id,
+            source="telegram_digest",
         )
         await context.bot.send_message(
             chat_id=chat_id,

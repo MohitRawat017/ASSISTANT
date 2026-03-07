@@ -73,7 +73,7 @@ def scroll(direction: str, amount: int = 3, x: int = None, y: int = None) -> dic
     x, y: coordinates to scroll at (None = current mouse position)
     """
     clicks = amount if direction == "up" else -amount
-    if x and y:
+    if x is not None and y is not None:
         pyautogui.scroll(clicks, x=x, y=y)
     else:
         pyautogui.scroll(clicks)

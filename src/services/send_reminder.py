@@ -149,6 +149,38 @@ def main():
         print("[send_reminder] Gmail credentials not configured, skipping email")
 
     # ==========================================================================
+    # STEP 2B: Send Telegram notification (non-fatal if it fails)
+    # ==========================================================================
+    tg_token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+    tg_chat_id_raw = os.environ.get("TELEGRAM_ALLOWED_USER_ID", "").strip()
+
+    if tg_token and tg_chat_id_raw:
+        try:
+            import asyncio
+            from telegram import Bot
+
+            tg_chat_id = int(tg_chat_id_raw) if tg_chat_id_raw.lstrip("-").isdigit() else tg_chat_id_raw
+            tg_text = (
+                f"🔔 Reminder: {alarm.get('label', 'Alarm')}\n"
+                f"Time: {alarm.get('time', 'unknown')}\n"
+                f"Alarm ID: {args.alarm_id}"
+            )
+
+            async def _send_telegram_message():
+                bot = Bot(token=tg_token)
+                try:
+                    await bot.send_message(chat_id=tg_chat_id, text=tg_text)
+                finally:
+                    await bot.close()
+
+            asyncio.run(_send_telegram_message())
+            print(f"[send_reminder] Telegram message sent for alarm {args.alarm_id}")
+        except Exception as e:
+            print(f"[send_reminder] Telegram send failed: {e}")
+    else:
+        print("[send_reminder] Telegram credentials not configured, skipping Telegram")
+
+    # ==========================================================================
     # STEP 3: Mark alarm as notified in database
     # ==========================================================================
     conn.execute("UPDATE alarms SET notified = 1 WHERE id = ?", (args.alarm_id,))

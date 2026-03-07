@@ -1,5 +1,33 @@
 import psutil
+import threading
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from pywinauto import Desktop
+
+SCAN_TIMEOUT_SECONDS = 5.0
+
+
+def _scan_open_windows(windows: list, stop_event: threading.Event) -> None:
+    """Collect visible windows into a shared list."""
+    try:
+        # win32 backend is significantly faster/more stable for broad window scans.
+        desktop = Desktop(backend="win32")
+        for window in desktop.windows():
+            if stop_event.is_set():
+                break
+            try:
+                title = window.window_text()
+                if title and title.strip():  # skip blank title windows
+                    pid = window.process_id()
+                    proc = psutil.Process(pid)
+                    windows.append({
+                        "title": title,
+                        "pid": pid,
+                        "process": proc.name()
+                    })
+            except Exception:
+                continue
+    except Exception as e:
+        windows.append({"error": f"scan failed: {e}"})
 
 
 def get_open_windows() -> list:
@@ -8,20 +36,20 @@ def get_open_windows() -> list:
     Returns: [{"title": str, "pid": int, "process": str}, ...]
     """
     windows = []
-    desktop = Desktop(backend="uia")
-    for window in desktop.windows():
-        try:
-            title = window.window_text()
-            if title and title.strip():  # skip blank title windows
-                pid = window.process_id()
-                proc = psutil.Process(pid)
-                windows.append({
-                    "title": title,
-                    "pid": pid,
-                    "process": proc.name()
-                })
-        except Exception:
-            continue
+    stop_event = threading.Event()
+    executor = ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(_scan_open_windows, windows, stop_event)
+
+    try:
+        future.result(timeout=SCAN_TIMEOUT_SECONDS)
+    except FutureTimeoutError:
+        stop_event.set()
+        windows.append({"error": "scan timed out"})
+    except Exception as e:
+        windows.append({"error": f"scan failed: {e}"})
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+
     return windows
 
 

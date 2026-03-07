@@ -41,9 +41,20 @@ class Config:
     GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "")
     REMINDER_EMAIL = os.getenv("REMINDER_EMAIL", "")  # Defaults to GMAIL_ADDRESS if empty
 
-    DEBUG_MODE = False
+    _debug_raw = os.getenv("DEBUG_MODE", "true").strip().lower()
+    DEBUG_MODE = _debug_raw in ("1", "true", "yes", "on")
+    DEBUG_LOG_DIR = os.path.join(BASE_DIR, "logs", "agent_traces")
 
     TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
     
     _tg_uid = os.getenv("TELEGRAM_ALLOWED_USER_ID", "0")
     TELEGRAM_ALLOWED_USER_ID = int(_tg_uid) if _tg_uid.isdigit() else 0
+
+    # Phase 5 — Vision model settings for screen understanding
+    # VISION_NUM_GPU:
+    #   0  -> CPU-only inference
+    #   >0 -> GPU offload layers for faster inference
+    VISION_MODEL = os.getenv("VISION_MODEL", "qwen3.5:4b")
+    VISION_MODEL_HOST = os.getenv("VISION_MODEL_HOST", "http://localhost:11434")
+    _vision_num_gpu_raw = os.getenv("VISION_NUM_GPU", "99")
+    VISION_NUM_GPU = int(_vision_num_gpu_raw) if _vision_num_gpu_raw.lstrip("-").isdigit() else 0

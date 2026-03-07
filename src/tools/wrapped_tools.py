@@ -234,68 +234,6 @@ def web_search(query: str) -> str:
         return f"Search failed: {e}"
 
 
-@tool
-def get_system_info() -> str:
-    """
-    Get a full status overview: current date/time, scheduled alarms, today's
-    calendar events, and pending tasks.
-
-    USE when the user asks:
-    - "what time is it?", "what's the date?", "what day is today?"
-    - "what's my schedule?", "what's on today?", "give me a status update"
-    - "what do I have going on?", "what's happening today?"
-
-    DO NOT use for:
-    - Only adding things (use add_task / set_alarm / create_calendar_event)
-    - Only reading tasks (use get_tasks if no schedule context is needed)
-
-    Returns:
-        Multi-line string with time, alarms, calendar events, and tasks
-    """
-    try:
-        parts = []
-        now = datetime.now()
-        parts.append(f"Time: {now.strftime('%Y-%m-%d %H:%M:%S')}")
-
-        # Get alarms from local SQLite
-        try:
-            alarms = get_alarm_manager().get_alarms()
-            if alarms:
-                parts.append("Alarms: " + ", ".join(f"{a['label']} at {a['time']}" for a in alarms[:5]))
-            else:
-                parts.append("No alarms.")
-        except:
-            pass
-
-        # Get Google Calendar events for today
-        try:
-            from src.tools.google.calendar_tools import get_upcoming_events as _get_upcoming_events
-            events = _get_upcoming_events(max_results=5)
-            today_str = now.strftime("%Y-%m-%d")
-            today_events = [e for e in events if e["start"].startswith(today_str)]
-            if today_events:
-                parts.append("Today: " + ", ".join(f"{e['title']} at {e['start']}" for e in today_events))
-            else:
-                parts.append("No events today.")
-        except:
-            parts.append("Calendar unavailable.")
-
-        # Get Google Tasks
-        try:
-            from src.tools.google.tasks_tools import get_google_tasks as _get_google_tasks
-            tasks = _get_google_tasks()
-            if tasks:
-                parts.append(f"Tasks ({len(tasks)}): " + ", ".join(t['title'] for t in tasks[:5]))
-            else:
-                parts.append("No pending tasks.")
-        except:
-            parts.append("Tasks unavailable.")
-
-        return "\n".join(parts)
-    except Exception as e:
-        return f"Failed to get info: {e}"
-
-
 # =============================================================================
 # SYSTEM CONTROL TOOLS
 # =============================================================================
@@ -312,8 +250,8 @@ def open_app(app_name: str) -> str:
       "open VS Code", "run Notepad", "start Steam"
 
     DO NOT use for:
-    - Shell commands (use run_command)
-    - Opening files (use run_command with the file path)
+    - Shell commands or direct terminal execution
+    - Opening arbitrary files by path
 
     IMPORTANT: After opening an app, wait at least 0.5 seconds before
     typing or clicking inside it to ensure the window is fully loaded.
@@ -344,63 +282,6 @@ def open_app(app_name: str) -> str:
         error_msg += f" Did you mean: {', '.join(suggestions[:3])}?"
     
     return error_msg
-
-
-@tool
-def run_command(command: str) -> str:
-    """
-    Execute a shell/terminal command and return its output.
-
-    USE when the user asks to:
-    - Run a specific terminal command: "run 'dir'", "execute 'ipconfig'"
-    - Check system info via CLI: "what's my IP?", "check disk space"
-    - Run a Python script: "run my_script.py"
-
-    DO NOT use for:
-    - Opening apps (use open_app)
-    - Anything the user didn't explicitly ask to run
-    - Destructive commands are blocked (rm, del, format, shutdown, etc.)
-
-    Args:
-        command: Shell command to execute
-        
-    Returns:
-        Command output (up to 500 chars) or error message
-    """
-    import subprocess
-
-    # SAFETY: Block potentially destructive commands
-    # This prevents accidental data loss or system damage
-    blocked = ["rm ", "del ", "format", "rmdir", "shutdown", "restart",
-               "reg delete", "taskkill", "> nul", "mkfs", "dd if="]
-    cmd_lower = command.lower()
-    for b in blocked:
-        if b in cmd_lower:
-            return f"Blocked: '{command}' looks destructive. Won't run it."
-
-    try:
-        result = subprocess.run(
-            command,
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=10,  # Prevent hanging on long commands
-            cwd=Config.BASE_DIR
-        )
-        output = result.stdout.strip()
-        errors = result.stderr.strip()
-
-        if result.returncode != 0 and errors:
-            return f"Command failed:\n{errors[:500]}"
-
-        if output:
-            return output[:500] if len(output) > 500 else output
-        return "Command ran successfully (no output)."
-
-    except subprocess.TimeoutExpired:
-        return "Command timed out (10s limit)."
-    except Exception as e:
-        return f"Failed to run command: {str(e)[:200]}"
 
 
 # =============================================================================
@@ -539,7 +420,7 @@ def get_upcoming_events(max_results: int = 5) -> str:
 
     DO NOT use for:
     - Creating events (use create_calendar_event)
-    - Full status overview (use get_system_info)
+    - Task-only requests (use get_tasks)
 
     Args:
         max_results: Number of events to return (default 5).
@@ -592,7 +473,7 @@ def get_tasks() -> str:
     - "what's pending?", "check my tasks", "any tasks?", "what's on my list?"
 
     DO NOT use for:
-    - Calendar events (use get_upcoming_events or get_system_info)
+    - Calendar events (use get_upcoming_events)
     - Adding new tasks (use add_task)
 
     Returns:
@@ -782,8 +663,7 @@ def close_app(app_name: str) -> str:
     return f"Could not close {app_name}: {result.get('error', 'not found')}"
 
 
-@tool
-def list_open_windows() -> str:
+def _legacy_list_open_windows() -> str:
     """
     List all currently open windows on the PC.
     Use when user asks 'what apps are open', 'what windows do I have open',
@@ -800,6 +680,50 @@ def list_open_windows() -> str:
             seen.add(w["title"])
             result.append(f"• {w['title']} ({w['process']})")
     return "\n".join(result[:20])  # cap at 20 to avoid huge responses
+
+
+@tool
+def list_open_windows() -> str:
+    """
+    List all currently open windows on the PC.
+    Handles timeout/error entries from get_open_windows() gracefully.
+    """
+    windows = get_open_windows()
+    if not windows:
+        return "No open windows found."
+
+    seen = set()
+    result = []
+    scan_errors = []
+
+    for w in windows:
+        if not isinstance(w, dict):
+            continue
+        if w.get("error"):
+            scan_errors.append(w["error"])
+            continue
+
+        title = w.get("title")
+        process = w.get("process", "unknown")
+        if not title:
+            continue
+
+        if title not in seen:
+            seen.add(title)
+            result.append(f"- {title} ({process})")
+
+    if not result:
+        if scan_errors:
+            unique_errors = list(dict.fromkeys(scan_errors))
+            return "No open windows found.\nWindow scan status: " + ", ".join(unique_errors)
+        return "No open windows found."
+
+    output = result[:20]
+    if scan_errors:
+        unique_errors = list(dict.fromkeys(scan_errors))
+        output.append("Window scan status: " + ", ".join(unique_errors))
+
+    return "\n".join(output)
 
 
 @tool
@@ -962,6 +886,182 @@ def minimize_all() -> str:
     return "All windows minimized, master."
 
 
+# =============================================================================
+# PHASE 5 — SCREEN VISION TOOLS
+# =============================================================================
+# These tools give the agent the ability to locate and interact with UI elements
+# on screen using natural-language descriptions instead of hardcoded coordinates.
+#
+# How it works:
+#   1. Tool is called with a description like "search bar" or "close button"
+#   2. find_element() in screen_vision.py takes a screenshot
+#   3. VISION_MODEL (via Config) locates the element and returns a bbox
+#   4. Bbox is scaled to real screen coordinates and returned
+#   5. pyautogui performs the click at those coordinates
+#
+# Vision import is optional - tools must fail gracefully if unavailable.
+try:
+    from src.vision.screen_vision import find_element, describe_screen, read_screen_text
+    _VISION_IMPORT_ERROR = None
+except ImportError:
+    find_element = None
+    describe_screen = None
+    read_screen_text = None
+    _VISION_IMPORT_ERROR = True
+
+
+def _vision_module_available() -> bool:
+    return _VISION_IMPORT_ERROR is None
+
+
+@tool
+def find_and_click(description: str, button: str = "left") -> str:
+    """
+    Find a UI element on screen by description and click it.
+    Use this INSTEAD of click_at() when you don't know the coordinates.
+    Use this when user says 'click X', 'press X button', 'tap X'.
+
+    description: what to find, e.g. "search bar", "close button", "submit button",
+                 "minimize button", "the X button", "send button in Gmail"
+    button: "left" (default), "right", or "middle"
+
+    Automatically takes screenshot, locates element, clicks center of it.
+    Returns confirmation with coordinates used, or error if not found.
+
+    IMPORTANT: After calling this tool, wait for result before taking further action.
+    Do NOT assume the click succeeded — check the return value.
+    """
+    if not _vision_module_available():
+        return "Vision module not available"
+
+    # Resolve element coordinates via the vision model
+    result = find_element(description)
+
+    if not result["found"]:
+        return f"Could not find '{description}' on screen: {result.get('error', 'unknown error')}"
+
+    x, y = result["x"], result["y"]
+    # Use the existing pc_automation mouse_click — already imported at module level
+    mouse_click(x, y, button=button)
+    return f"Found '{description}' and clicked at ({x}, {y}), master."
+
+
+@tool
+def find_and_double_click(description: str) -> str:
+    """
+    Find a UI element on screen by description and double-click it.
+    Use when user says 'double click X', 'open X by double clicking'.
+
+    description: what to find, e.g. "Chrome icon on desktop", "folder"
+    Returns confirmation or error.
+    """
+    if not _vision_module_available():
+        return "Vision module not available"
+
+    result = find_element(description)
+
+    if not result["found"]:
+        return f"Could not find '{description}' on screen: {result.get('error', 'unknown error')}"
+
+    x, y = result["x"], result["y"]
+    # pyautogui.doubleClick is not wrapped in pc_automation, so import locally
+    import pyautogui as _pag
+    _pag.doubleClick(x, y)
+    return f"Found '{description}' and double-clicked at ({x}, {y}), master."
+
+
+@tool
+def find_and_right_click(description: str) -> str:
+    """
+    Find a UI element on screen and right-click it to open context menu.
+    Use when user says 'right click X', 'open context menu for X'.
+
+    description: what to right-click
+    Returns confirmation or error.
+    """
+    if not _vision_module_available():
+        return "Vision module not available"
+
+    result = find_element(description)
+
+    if not result["found"]:
+        return f"Could not find '{description}' on screen: {result.get('error', 'unknown error')}"
+
+    x, y = result["x"], result["y"]
+    # Use pc_automation's mouse_click with button="right"
+    mouse_click(x, y, button="right")
+    return f"Found '{description}' and right-clicked at ({x}, {y}), master."
+
+
+@tool
+def find_and_type(description: str, text: str) -> str:
+    """
+    Find a text input field on screen, click it, then type text into it.
+    Use when user says 'type X in the search bar', 'enter X in the input field'.
+    Combines find_and_click + type_text in one step.
+
+    description: the input field to find, e.g. "search bar", "address bar",
+                 "notepad text area", "username field"
+    text: what to type
+    Returns confirmation or error.
+    """
+    import time
+
+    if not _vision_module_available():
+        return "Vision module not available"
+
+    # Step 1: Locate and click the target field
+    result = find_element(description)
+    if not result["found"]:
+        return f"Could not find '{description}' on screen: {result.get('error', 'unknown error')}"
+
+    x, y = result["x"], result["y"]
+    # Click to give the field focus using the existing pc_automation wrapper
+    mouse_click(x, y)
+
+    # Brief delay so the field receives keyboard focus before we start typing
+    time.sleep(0.3)
+
+    # Step 2: Type using the existing type_text wrapper from pc_automation
+    type_text(text)
+    return f"Clicked '{description}' at ({x}, {y}) and typed: {text}"
+
+
+@tool
+def what_is_on_screen() -> str:
+    """
+    Describes what is currently visible on the screen.
+    Use when user asks 'what's on my screen', 'what do you see',
+    'what app is open', 'describe my screen', 'what's happening on screen'.
+    Takes a screenshot and uses vision AI to describe it.
+    Returns detailed description of screen contents.
+    """
+    if not _vision_module_available():
+        return "Vision module not available"
+
+    # describe_screen() handles the screenshot + model call internally
+    return describe_screen()
+
+
+@tool
+def read_text_on_screen(area: str = None) -> str:
+    """
+    Reads and extracts text currently visible on screen.
+    Use when user asks 'read the error message', 'what does it say',
+    'read the text on screen', 'what's written there'.
+
+    area: optional — specific area to focus on, e.g. "error dialog",
+          "title bar", "notification", "selected text"
+          If None, reads all text on screen.
+    Returns extracted text from screen.
+    """
+    if not _vision_module_available():
+        return "Vision module not available"
+
+    # Pass area directly; read_screen_text handles None (full screen) gracefully
+    return read_screen_text(area)
+
+
 ALL_TOOLS = [
     # Productivity
     set_alarm,
@@ -970,10 +1070,8 @@ ALL_TOOLS = [
     add_task,
     get_tasks,
     complete_task,
-    get_system_info,
     # System
     open_app,
-    run_command,
     # Research
     web_search,
     # Communication
@@ -1001,4 +1099,11 @@ ALL_TOOLS = [
     type_text_tool,
     press_keyboard_key,
     hotkey_tool,
+    # Phase 5 — Screen Vision (vision-guided mouse automation)
+    find_and_click,
+    find_and_double_click,
+    find_and_right_click,
+    find_and_type,
+    what_is_on_screen,
+    read_text_on_screen,
 ]

@@ -3,6 +3,7 @@ import time
 import logging
 from rich.console import Console
 from rich.logging import RichHandler
+from src.utils.config import Config
 
 console = Console()
 
@@ -13,12 +14,11 @@ logging.basicConfig(
 )
 
 USE_ASR = False      # Automatic Speech Recognition (voice input)
-DEBUG_MODE = False   # Verbose logging and tool call visibility
+DEBUG_MODE = Config.DEBUG_MODE  # Verbose logging and tool call visibility
 
-# Suppress noisy third-party loggers unless debug mode is on
-if not DEBUG_MODE:
-    for _lib in ("httpx", "httpcore", "telegram", "apscheduler", "hpack"):
-        logging.getLogger(_lib).setLevel(logging.WARNING)
+# Keep third-party logs quiet so debug output stays focused on tool flow.
+for _lib in ("httpx", "httpcore", "telegram", "apscheduler", "hpack", "langchain", "langgraph", "urllib3"):
+    logging.getLogger(_lib).setLevel(logging.WARNING)
 
 
 def initialize_google_auth():
@@ -76,7 +76,8 @@ async def run_terminal(tts, stop_event: asyncio.Event):
             # Time the response for debugging/optimization
             t_start = time.perf_counter()
             
-            response = await arun_agent(user_input, thread_id="terminal_main")
+            source = "terminal_voice" if (asr and USE_ASR) else "terminal_text"
+            response = await arun_agent(user_input, thread_id="terminal_main", source=source)
             
             elapsed = time.perf_counter() - t_start
 
@@ -181,4 +182,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-

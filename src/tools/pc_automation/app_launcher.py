@@ -123,8 +123,8 @@ def open_application(app_name: str) -> dict:
 
     # Try AppOpener (handles installed apps by display name)
     try:
-        import appopener
-        appopener.open(app_name)
+        import AppOpener
+        AppOpener.open(app_name)
         return {"success": True, "app": app_name, "method": "appopener", "focused": False}
     except Exception:
         pass
@@ -172,8 +172,11 @@ def is_app_running(app_name: str) -> dict:
 
     for proc in psutil.process_iter(["name"]):
         try:
-            if exe_name in proc.info["name"].lower():
+            proc_name_raw = proc.info.get("name")
+            if proc_name_raw is None:
+                continue
+            if exe_name in proc_name_raw.lower():
                 return {"running": True, "app": app_name}
-        except psutil.NoSuchProcess:
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
     return {"running": False, "app": app_name}

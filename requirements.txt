@@ -16,6 +16,7 @@ AppOpener>=1.7
 
 # Web search
 ddgs>=9.0.0
+duckduckgo-search>=6.3.0
 
 # -------------------------
 # ASR
