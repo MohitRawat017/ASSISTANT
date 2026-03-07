@@ -106,3 +106,5 @@ tests/test_tool_retriever.py
 # Google OAuth credentials — never commit
 src/credentials/
 token.json
+
+data
