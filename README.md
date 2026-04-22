@@ -1,122 +1,210 @@
-# Tsuzi — AI Voice Assistant
+# Tsuzi
 
-![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=for-the-badge&logo=python&logoColor=white)
-![Status](https://img.shields.io/badge/Version-1.0-brightgreen?style=for-the-badge)
-![Pipeline](https://img.shields.io/badge/Pipeline-Multi--Layer%20AI-purple?style=for-the-badge)
-![TTS](https://img.shields.io/badge/TTS-Kokoro%20%7C%20KittenTTS-orange?style=for-the-badge)
+<div align="center">
 
-> A fully local, multi-layer AI assistant that routes queries through fine-tuned models before reaching any cloud API — keeping costs near-zero, latency sub-second, and privacy intact.
+![Python](https://img.shields.io/badge/Python-3.12+-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![Platform](https://img.shields.io/badge/Platform-Windows%2011-0078D4?style=for-the-badge&logo=windows11&logoColor=white)
+![LangGraph](https://img.shields.io/badge/Agent-LangGraph-111111?style=for-the-badge)
+![Ollama](https://img.shields.io/badge/LLM-Ollama-222222?style=for-the-badge)
+![Phase](https://img.shields.io/badge/Progress-Phase%205%20Implemented-1F8E3D?style=for-the-badge)
+
+**A local-first desktop assistant with memory, Telegram control, PC automation, and screen vision.**
+
+*Talk to it in the terminal. Message it from Telegram. Let it open apps, manage tasks, send reminders, read the screen, and interact with your desktop.*
+
+</div>
+
+---
+
+## What Tsuzi Can Do Right Now
+
+| Area | Implemented |
+| --- | --- |
+| Agent | LangGraph ReAct agent with tool calling and multi-step execution |
+| Interfaces | Terminal chat and Telegram text/voice interface |
+| Memory | Long-term memory with per-query memory refresh |
+| Productivity | Alarms, reminders, Google Calendar, Google Tasks |
+| Communication | Gmail send/read/search, Telegram notifications |
+| PC control | Open/close/focus apps, list windows, screenshots, mouse/keyboard, volume, brightness, lock screen |
+| Vision | Screen description, text extraction, find-and-click style UI interaction |
+| Debugging | Clear tool-call tracing plus JSONL query/result logs |
+
+---
+
+## Phase Status
+
+- `Phase 1`: LangGraph agent foundation
+- `Phase 2`: Long-term memory
+- `Phase 3`: Telegram interface and shared assistant runtime
+- `Phase 4`: Deterministic Windows PC automation
+- `Phase 5`: Screen vision and vision-guided mouse automation
+
+This README documents the project **as currently implemented through Phase 5**.
+
+---
+
+## Experience
+
+```text
+You type or send a message
+        |
+        v
+LangGraph agent decides what to do
+        |
+        +--> calls tools for apps, tasks, mail, reminders, Telegram, PC control
+        |
+        +--> calls vision tools when UI needs to be located on screen
+        |
+        v
+Tsuzi returns a short assistant response
+        |
+        +--> optionally speaks it aloud
+        +--> logs the full tool trace for debugging
+```
 
 ---
 
 ## Architecture
 
-Tsuzi uses a 5-layer inference pipeline where most queries never touch a large cloud model:
-
-```
-User Query
-    │
-    ▼
-┌─────────────────────────────────────┐
-│  Layer 0 — Pre-filter               │  ~0.01ms
-│  String match for casual inputs     │
-│  "hello" / "thanks" / "ok"          │
-└────────────────┬────────────────────┘
-                 │ (not casual)
-                 ▼
-┌─────────────────────────────────────┐
-│  Layer 1 — MiniLM Intent Router     │  ~5ms · CPU
-│  Fine-tuned BERT classifier         │
-│  → casual / productivity /          │
-│    system / research / comms        │
-└────────────────┬────────────────────┘
-                 │ (confidence ≥ 0.60)
-                 ▼
-┌─────────────────────────────────────┐
-│  Layer 2 — Tool Category Lookup     │  ~0ms
-│  Narrows tool set to 2–5 options    │
-│  based on detected intent           │
-└────────────────┬────────────────────┘
-                 │
-                 ▼
-┌─────────────────────────────────────┐
-│  Layer 3 — FunctionGemma            │  ~20–50ms · GPU
-│  Fine-tuned LoRA on Gemma-270M      │
-│  Outputs: {"tool": ..., "args": ...}│
-└────────────────┬────────────────────┘
-                 │ (valid JSON)
-                 ▼
-┌─────────────────────────────────────┐
-│  Layer 4 — Tool Execution           │  direct
-│  Runs the selected tool locally     │
-└─────────────────────────────────────┘
-                 │ (fallback at any layer)
-                 ▼
-┌─────────────────────────────────────┐
-│  Groq LLM (llama-3.3-70b)          │  ~300–800ms
-│  Complex reasoning / unknown intent │
-└─────────────────────────────────────┘
-                 │
-                 ▼
-┌─────────────────────────────────────┐
-│  Kokoro / KittenTTS                 │
-│  Local neural TTS — spoken response │
-└─────────────────────────────────────┘
+```mermaid
+flowchart TD
+    A[Terminal Input / Telegram Message / Telegram Voice] --> B[LangGraph ReAct Agent]
+    B --> C[Long-Term Memory]
+    B --> D[Wrapped Tools]
+    D --> E[Google Calendar / Tasks / Gmail]
+    D --> F[Windows Automation]
+    D --> G[Telegram Bot]
+    D --> H[Screen Vision]
+    H --> I[Ollama Vision Model]
+    B --> J[Ollama Text Model]
+    B --> K[TTS Output]
+    B --> L[Debug Trace Logs]
 ```
 
 ---
 
-## Performance
+## Highlights
 
-| Path | Latency | Cloud Cost |
-|------|---------|------------|
-| Casual pre-filter → LLM | ~350ms | Minimal (short prompt) |
-| MiniLM + FunctionGemma → Tool | **~25–55ms** | **Zero** |
-| Low-confidence → Groq fallback | ~400–800ms | Low |
+### Local-first by design
+- The main assistant runtime uses Ollama locally.
+- Windows automation and screen control happen on-device.
+- Voice output is local.
 
-The majority of practical voice commands (set timer, open app, web search) resolve in under **60ms** via the local model stack, with zero API cost.
+### Actually useful beyond chat
+- Set alarms and reminders.
+- Manage tasks and calendar events.
+- Send yourself notifications on Telegram.
+- Open apps, switch windows, type text, press shortcuts.
+- Ask what is on screen and click UI elements by description.
 
----
-
-## Capabilities
-
-### Productivity
-- Set timers and alarms with natural language durations
-- Create and query tasks via a local SQLite task list
-- Schedule calendar events with natural language dates
-
-### System
-- Launch any installed desktop application by name
-- Execute shell commands with output capped and safety checks
-- Query system info (time, date, status)
-
-### Research
-- Real-time web search via DuckDuckGo (no API key required)
-- Academic paper search via arXiv
-- Stack Overflow code search
-
-### Communication
-- Send and read Gmail with app-password auth
+### Debuggable
+- Debug mode prints only the important execution trail.
+- Every query can be logged with tool calls, results, duration, and final output.
 
 ---
 
-## Tech Stack
+## Demo Commands
 
-| Component | Technology |
-|-----------|------------|
-| Intent Classification | Fine-tuned MiniLM-L6-v2 (BERT, 22M params, CPU) |
-| Tool Selection | Fine-tuned FunctionGemma-270M LoRA (GPU) |
-| LLM Fallback | Groq `llama-3.3-70b-versatile` |
-| ASR | Faster-Whisper Large-v3 Turbo |
-| TTS | Kokoro-82M / KittenTTS |
-| Memory | SQLite (LangGraph checkpointer, v2) |
-| Tool Retrieval | Sentence-Transformers embedding similarity |
+```text
+"open chrome and search for LangGraph"
+"what windows are open right now?"
+"send me a screenshot on Telegram"
+"click the search bar and type github"
+"read the text on the current screen"
+"set an alarm for 7:00 am called workout"
+"add a task to finish the README"
+"email me the reminder summary"
+```
 
 ---
 
-## Quick Start
+## Current Tooling Snapshot
 
-### 1. Install
+<details>
+<summary><strong>Productivity</strong></summary>
+
+- `set_alarm`
+- `create_calendar_event`
+- `get_upcoming_events`
+- `add_task`
+- `get_tasks`
+- `complete_task`
+
+</details>
+
+<details>
+<summary><strong>Communication</strong></summary>
+
+- `send_email`
+- `read_emails`
+- `search_emails`
+- Telegram push notifications for reminders and screenshots
+
+</details>
+
+<details>
+<summary><strong>PC Automation</strong></summary>
+
+- `open_app`
+- `close_app`
+- `list_open_windows`
+- `focus_app`
+- `minimize_all`
+- `take_screenshot_tool`
+- `screenshot_to_telegram`
+- `click_at`
+- `type_text_tool`
+- `press_keyboard_key`
+- `hotkey_tool`
+- `control_volume`
+- `control_brightness`
+- `lock_screen_tool`
+- `get_pc_status`
+
+</details>
+
+<details>
+<summary><strong>Vision Tools</strong></summary>
+
+- `find_and_click`
+- `find_and_double_click`
+- `find_and_right_click`
+- `find_and_type`
+- `what_is_on_screen`
+- `read_text_on_screen`
+
+</details>
+
+---
+
+## Project Structure
+
+```text
+src/
+├── main.py                    # terminal + Telegram runtime
+├── graph/
+│   └── agent.py              # LangGraph agent, prompt flow, debug tracing
+├── tools/
+│   ├── wrapped_tools.py      # tool registry exposed to the agent
+│   ├── google/               # Gmail, Calendar, Tasks integration
+│   └── pc_automation/        # Windows automation helpers
+├── interfaces/
+│   └── telegram_bot.py       # Telegram bot interface
+├── services/
+│   └── send_reminder.py      # reminder delivery via email + Telegram
+├── vision/
+│   └── screen_vision.py      # screen understanding and element finding
+├── memory/
+│   └── long_term_memory.py   # persistent memory storage
+└── utils/
+    └── config.py             # environment-driven configuration
+```
+
+---
+
+## Setup
+
+### 1. Create the environment
 
 ```powershell
 python -m venv .venv
@@ -124,83 +212,124 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-### 2. Configure
+### 2. Install PyTorch separately
 
-```env
-# .env
-GROQ_API_KEY=your_groq_key
-GMAIL_ADDRESS=your_email@gmail.com
-GMAIL_APP_PASSWORD=your_app_password
-OLLAMA_MODEL=qwen2.5:7b          # optional, for local LLM
+```powershell
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 ```
 
-### 3. Run
+### 3. Make sure Ollama models are available
+
+You already manage models locally. Tsuzi expects:
+
+- a text model for the assistant runtime via `OLLAMA_MODEL`
+- a vision-capable model via `VISION_MODEL`
+
+### 4. Configure `.env`
+
+```env
+OLLAMA_MODEL=qwen3.5:4b
+VISION_MODEL=your_vision_model_here
+VISION_NUM_GPU=99
+
+DEBUG_MODE=true
+
+TELEGRAM_BOT_TOKEN=your_bot_token
+TELEGRAM_ALLOWED_USER_ID=your_numeric_user_id
+
+GMAIL_ADDRESS=you@gmail.com
+GMAIL_APP_PASSWORD=your_app_password
+REMINDER_EMAIL=you@gmail.com
+```
+
+### 5. Run the assistant
 
 ```powershell
 python -m src.main
 ```
 
-Set `USE_ASR = True` in `src/main.py` to enable voice input via microphone.
+---
+
+## Debugging Flow
+
+When `DEBUG_MODE=true`, Tsuzi prints a concise trace like this:
+
+```text
+[debug][terminal_text][a1b2c3d4] Query: open chrome and search for github
+[debug][terminal_text][a1b2c3d4] Calling tool: open_app | args: {"app_name":"chrome"}
+[debug][terminal_text][a1b2c3d4] Tool result: open_app -> Opened chrome, master.
+[debug][terminal_text][a1b2c3d4] Calling tool: find_and_click | args: {"description":"search bar"}
+[debug][terminal_text][a1b2c3d4] Final response: Done, master.
+```
+
+Structured query traces are written to:
+
+```text
+logs/agent_traces/agent_trace_YYYYMMDD.jsonl
+```
+
+Each record includes:
+
+- query source
+- thread id
+- tool calls
+- tool results
+- final response
+- duration
+- error, if any
 
 ---
 
-## Project Structure
+## Vision Notes
 
-```
-src/
-├── main.py                    # Entry point
-├── tools/
-│   ├── pre_filter.py          # Layer 0 — casual query detection
-│   ├── intent_router.py       # Layer 1 — MiniLM intent classification
-│   ├── tools_by_category.py   # Layer 2 — tool category mapping
-│   ├── tool_router.py         # Layer 3 — FunctionGemma tool selection
-│   ├── decision_router.py     # Layer 4 — pipeline orchestrator
-│   ├── tool_retriever.py      # Embedding-based retrieval (fallback path)
-│   └── wrapped_tools.py       # All tool implementations
-├── managers/
-│   ├── task_manager.py
-│   ├── alarm_manager.py
-│   └── calendar_manager.py
-├── audio_input/
-│   └── asr.py                 # Faster-Whisper ASR
-├── audio_output/
-│   ├── KokoroTTS.py
-│   └── kittentts.py
-└── utils/
-    └── config.py
+Phase 5 is implemented as **tool-driven vision**, not as a raw multimodal chat UI.
 
-models/
-├── asr/                       # Faster-Whisper weights
-├── tts/                       # Kokoro / KittenTTS weights
-└── tool_call/
-    ├── miniLM/                # Fine-tuned intent classifier
-    └── function_gemma/        # Fine-tuned LoRA tool selector
-```
+- The text model decides **what** to do.
+- The vision module determines **where** on screen the target UI element is.
+- Coordinates are converted back to real screen pixels before mouse automation runs.
+- Vision import failures are handled gracefully so the assistant does not crash.
 
 ---
 
-## Example Interactions
+## Design Choices
 
-```
-You: set a timer for 10 minutes
-→ MiniLM: productivity (0.94) → FunctionGemma: set_timer(duration="10 minutes")
-Tsuzi: Timer set for 10 minutes, master.
+<details>
+<summary><strong>Why LangGraph?</strong></summary>
 
-You: find papers on diffusion models
-→ MiniLM: research (0.91) → FunctionGemma: search_arxiv(query="diffusion models")
-Tsuzi: Found 3 papers on diffusion models...
+It gives you a clean ReAct loop, tool calling, per-thread short-term memory, and a structure that can grow into more autonomous flows without rewriting the assistant from scratch.
 
-You: open spotify
-→ MiniLM: system (0.97) → FunctionGemma: open_app(app_name="spotify")
-Tsuzi: Opening Spotify, master.
+</details>
 
-You: hey how are you
-→ Pre-filter: casual → Groq LLM
-Tsuzi: Doing great, master! What can I do for you?
-```
+<details>
+<summary><strong>Why separate tool wrappers?</strong></summary>
+
+The agent sees a compact, well-documented tool interface while the real implementation details stay isolated in service and automation modules.
+
+</details>
+
+<details>
+<summary><strong>Why this debugging style?</strong></summary>
+
+Raw framework traces are noisy. The current debug path is intentionally narrow: show the query, tool calls, tool outputs, final answer, and keep the rest in JSONL logs for later analysis.
+
+</details>
+
+---
+
+## Known Scope
+
+- Windows is the primary supported platform right now.
+- The assistant is feature-rich but still evolving, so some flows depend on local desktop state and app availability.
+- Vision quality depends on the selected Ollama vision model and the current screen content.
+
+---
+
+## Roadmap Context
+
+The broader roadmap continues beyond this point, but the repository currently reflects completed work **through Phase 5**. The next layers would build on this base rather than replace it.
 
 ---
 
 ## License
 
-[MIT](LICENSE)
+MIT

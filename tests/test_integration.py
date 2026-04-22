@@ -113,22 +113,6 @@ class TestResearchWorkflows:
     """Test research-related multi-tool workflows."""
     
     @pytest.mark.integration
-    def test_stackoverflow_to_summary_workflow(self):
-        """Test searching Stack Overflow and summarizing results."""
-        from src.tools.wrapped_tools import search_stackoverflow
-        
-        # Step 1: Search for a solution
-        result = run_tool_test(search_stackoverflow, "python list comprehension")
-        
-        # Verify search returned results
-        assert result["output"] is not None
-        assert len(result["output"]) > 0 or "No results" in result["output"] or result["error"] is not None
-        
-        # In a full workflow, we would then:
-        # Step 2: Summarize the top result (would need summarize_webpage)
-        # Step 3: Save the summary to a file
-    
-    @pytest.mark.integration
     @pytest.mark.requires_network
     def test_web_search_workflow(self):
         """Test web search and result processing."""
@@ -208,63 +192,24 @@ class TestTaskCalendarWorkflows:
 # ── Alarm & Timer Workflows ────────────────────────────────────────────────
 
 class TestTimeManagementWorkflows:
-    """Test alarm and timer integration workflows."""
+    """Test alarm integration workflows."""
     
     @pytest.mark.integration
-    def test_set_alarm_and_timer(self, tmp_path):
-        """Test setting both alarm and timer for reminder."""
+    def test_set_alarm_workflow(self, tmp_path):
+        """Test setting an alarm reminder."""
         from src.managers.alarm_manager import AlarmManager
-        from src.managers.timer_manager import TimerManager
         
         # Setup
         alarm_db = str(tmp_path / "alarms.db")
         alarm_mgr = AlarmManager(alarm_db)
-        timer_mgr = TimerManager()
         
         # Set an alarm for morning meeting
         alarm_id = alarm_mgr.add_alarm("09:00", "Team standup")
         
-        # Set a timer for a break reminder
-        timer = timer_mgr.add_timer("Break reminder", 1800)  # 30 minutes
-        
-        # Verify both are active
+        # Verify it is active
         alarms = alarm_mgr.get_alarms()
-        active_timers = timer_mgr.get_active_timers()
         
         assert any(a.get("label") == "Team standup" for a in alarms)
-        assert any(t.get("label") == "Break reminder" for t in active_timers)
-        
-        # Cleanup timer
-        timer_mgr.cancel_timer("Break reminder")
-    
-    @pytest.mark.integration
-    def test_multiple_timers_workflow(self):
-        """Test managing multiple concurrent timers."""
-        from src.managers.timer_manager import TimerManager
-        
-        mgr = TimerManager()
-        
-        # Set multiple cooking timers
-        mgr.add_timer("Pasta", 600)  # 10 minutes
-        mgr.add_timer("Sauce", 300)  # 5 minutes
-        mgr.add_timer("Garlic bread", 420)  # 7 minutes
-        
-        # Check all are active
-        timers = mgr.get_active_timers()
-        assert len(timers) >= 3
-        
-        # Cancel one
-        mgr.cancel_timer("Sauce")
-        
-        # Verify remaining
-        timers = mgr.get_active_timers()
-        active_labels = [t.get("label") for t in timers]
-        assert "Sauce" not in active_labels
-        assert "Pasta" in active_labels or any("Pasta" in str(t) for t in timers)
-        
-        # Cleanup
-        mgr.cancel_timer("Pasta")
-        mgr.cancel_timer("Garlic bread")
 
 
 # ── Habit & Task Integration ───────────────────────────────────────────────

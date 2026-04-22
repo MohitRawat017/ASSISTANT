@@ -108,44 +108,6 @@ def run_tool_test(tool_func, *args, should_succeed=True, **kwargs):
 
 # ── Core Tools Tests ──────────────────────────────────────────────────────
 
-class TestTimerTool:
-    """Tests for set_timer tool."""
-    
-    @pytest.mark.core
-    def test_set_timer_minutes(self):
-        """Test setting timer with minutes."""
-        from src.tools.wrapped_tools import set_timer
-        
-        result = run_tool_test(set_timer, "5 minutes", "Test Timer")
-        assert result["success"], f"Timer failed: {result['error']}"
-        assert "timer" in result["output"].lower()
-    
-    @pytest.mark.core
-    def test_set_timer_seconds(self):
-        """Test setting timer with seconds."""
-        from src.tools.wrapped_tools import set_timer
-        
-        result = run_tool_test(set_timer, "30 seconds", "Quick Timer")
-        assert result["success"], f"Timer failed: {result['error']}"
-    
-    @pytest.mark.core
-    def test_set_timer_hours(self):
-        """Test setting timer with hours."""
-        from src.tools.wrapped_tools import set_timer
-        
-        result = run_tool_test(set_timer, "1 hour", "Hour Timer")
-        assert result["success"], f"Timer failed: {result['error']}"
-    
-    @pytest.mark.core
-    def test_set_timer_invalid_duration(self):
-        """Test timer with invalid duration."""
-        from src.tools.wrapped_tools import set_timer
-        
-        result = run_tool_test(set_timer, "invalid duration", "Bad Timer")
-        # Should handle gracefully
-        assert result["output"] is not None
-
-
 class TestAlarmTool:
     """Tests for set_alarm tool."""
     
@@ -381,57 +343,6 @@ class TestRunCommandTool:
 
 # ── Research Tools Tests ──────────────────────────────────────────────────
 
-class TestStackOverflowTool:
-    """Tests for search_stackoverflow tool."""
-    
-    @pytest.mark.research
-    @pytest.mark.requires_network
-    def test_search_basic(self):
-        """Test basic Stack Overflow search."""
-        from src.tools.wrapped_tools import search_stackoverflow
-        
-        result = run_tool_test(search_stackoverflow, "python list comprehension")
-        assert result["success"], f"SO search failed: {result['error']}"
-        assert "stack" in result["output"].lower() or "overflow" in result["output"].lower()
-    
-    @pytest.mark.research
-    @pytest.mark.requires_network
-    def test_search_empty(self):
-        """Test empty query."""
-        from src.tools.wrapped_tools import search_stackoverflow
-        
-        result = run_tool_test(search_stackoverflow, "")
-        # Should handle gracefully
-        assert result["output"] is not None
-
-
-class TestArxivTool:
-    """Tests for search_arxiv tool."""
-    
-    @pytest.mark.research
-    @pytest.mark.requires_network
-    @pytest.mark.skipif(not check_dependency("arxiv"), reason="Missing arxiv")
-    def test_search_basic(self):
-        """Test basic arXiv search."""
-        from src.tools.wrapped_tools import search_arxiv
-        
-        result = run_tool_test(search_arxiv, "machine learning")
-        assert result["success"], f"arXiv search failed: {result['error']}"
-        assert "arxiv" in result["output"].lower()
-    
-    @pytest.mark.research
-    @pytest.mark.requires_network
-    @pytest.mark.skipif(not check_dependency("arxiv"), reason="Missing arxiv")
-    def test_search_with_limit(self):
-        """Test arXiv search with result limit."""
-        from src.tools.wrapped_tools import search_arxiv
-        
-        result = run_tool_test(search_arxiv, "neural networks", max_results=2)
-        assert result["success"], f"arXiv search failed: {result['error']}"
-
-
-
-
 # ── Habits Tools Tests ────────────────────────────────────────────────────
 
 class TestHabitTools:
@@ -514,7 +425,6 @@ class TestDependencies:
     def test_check_all_dependencies(self):
         """Report on all optional dependencies status."""
         dependencies = {
-            "arxiv": "Academic paper search",
             "ddgs": "Web search (DuckDuckGo)",
             "AppOpener": "App launching",
             "requests": "HTTP requests"

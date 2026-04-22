@@ -15,7 +15,6 @@ Categories:
     core         - Core tools (timer, alarm, calendar, tasks, etc.)
     pc_control   - PC control tools (volume, brightness, etc.)
     file_ops     - File operations
-    research     - Research tools (stackoverflow, arxiv, youtube)
     habits       - Habit tracking
     email        - Email tools
     managers     - Manager unit tests
@@ -82,9 +81,7 @@ def check_dependencies() -> Dict[str, dict]:
         "pyautogui": {"feature": "Screenshot & Minimize", "required": False},
         
         # Research
-        "arxiv": {"feature": "Academic Paper Search", "required": False},
         "trafilatura": {"feature": "Webpage Summarization", "required": False},
-        "youtubesearchpython": {"feature": "YouTube Search", "required": False},
         "requests": {"feature": "HTTP Requests", "required": True},
         
         # Testing
@@ -273,7 +270,7 @@ def run_quick_tests():
     # Test 2: Check managers can be imported
     print("2. Testing manager imports...", end=" ")
     try:
-        from src.managers.timer_manager import TimerManager
+        from src.managers.alarm_manager import AlarmManager
         from src.managers.alarm_manager import AlarmManager
         from src.managers.task_manager import TaskManager
         from src.managers.calendar_manager import CalendarManager
@@ -294,27 +291,8 @@ def run_quick_tests():
         print_color(f"FAIL - {e}", Colors.RED)
         results.append(False)
     
-    # Test 4: Quick timer test
-    print("4. Testing timer functionality...", end=" ")
-    try:
-        from src.tools.wrapped_tools import set_timer
-        # StructuredTool needs .invoke() or to access the underlying function
-        if hasattr(set_timer, 'invoke'):
-            result = set_timer.invoke({"duration": "1 second", "label": "Quick Test"})
-        else:
-            result = set_timer("1 second", "Quick Test")
-        if result and "timer" in result.lower():
-            print_color("OK", Colors.GREEN)
-            results.append(True)
-        else:
-            print_color(f"OK (tool available)", Colors.GREEN)
-            results.append(True)
-    except Exception as e:
-        print_color(f"OK (tool available)", Colors.GREEN)
-        results.append(True)
-    
-    # Test 5: Quick task test
-    print("5. Testing task functionality...", end=" ")
+    # Test 4: Quick task test
+    print("4. Testing task functionality...", end=" ")
     try:
         from src.tools.wrapped_tools import add_task, get_tasks
         # StructuredTool needs .invoke() or to access the underlying function

@@ -102,3 +102,22 @@ updates.md
 src/graph/
 src/tools/tool_retriever.py
 tests/test_tool_retriever.py
+
+# Google OAuth credentials — never commit
+src/credentials/
+token.json
+
+data
+doubts.md
+
+managers/habit_manader.py 
+managers/news_manager.py
+managers/weather_manager.py 
+managers/task_manager.py 
+managers/calender_manager.py 
+
+changes.md 
+flow.ipynb 
+phase4_plan.md
+phase5_plan.md
+
