@@ -5,12 +5,15 @@ from dotenv import load_dotenv
 # This must be called before any os.getenv() calls
 load_dotenv()
 
-import torch
+try:
+    import torch
+except ImportError:
+    torch = None
 
 
 class Config:
     
-    DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+    DEVICE = "cuda" if torch and torch.cuda.is_available() else "cpu"
     
     # config.py -> utils -> src -> [project_root]
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -54,7 +57,36 @@ class Config:
     # VISION_NUM_GPU:
     #   0  -> CPU-only inference
     #   >0 -> GPU offload layers for faster inference
-    VISION_MODEL = os.getenv("VISION_MODEL", "qwen3.5:4b")
+    NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "").strip()
+    VISION_PROVIDER = os.getenv("VISION_PROVIDER", "auto").strip().lower()
+    DEFAULT_NVIDIA_VISION_MODEL = "qwen/qwen3.5-122b-a10b"
+    DEFAULT_OLLAMA_VISION_MODEL = "qwen3.5:4b"
+    _vision_model_raw = os.getenv("VISION_MODEL", "").strip()
+    if _vision_model_raw:
+        VISION_MODEL = _vision_model_raw
+    elif VISION_PROVIDER == "nvidia" or (VISION_PROVIDER == "auto" and NVIDIA_API_KEY):
+        VISION_MODEL = DEFAULT_NVIDIA_VISION_MODEL
+    else:
+        VISION_MODEL = DEFAULT_OLLAMA_VISION_MODEL
+
+    _vision_temperature_raw = os.getenv("VISION_TEMPERATURE", "0.6")
+    try:
+        VISION_TEMPERATURE = float(_vision_temperature_raw)
+    except ValueError:
+        VISION_TEMPERATURE = 0.6
+
+    _vision_top_p_raw = os.getenv("VISION_TOP_P", "0.95")
+    try:
+        VISION_TOP_P = float(_vision_top_p_raw)
+    except ValueError:
+        VISION_TOP_P = 0.95
+
+    _vision_max_tokens_raw = os.getenv("VISION_MAX_COMPLETION_TOKENS", "16384")
+    VISION_MAX_COMPLETION_TOKENS = (
+        int(_vision_max_tokens_raw)
+        if _vision_max_tokens_raw.isdigit()
+        else 16384
+    )
     VISION_MODEL_HOST = os.getenv("VISION_MODEL_HOST", "http://localhost:11434")
     _vision_num_gpu_raw = os.getenv("VISION_NUM_GPU", "99")
     VISION_NUM_GPU = int(_vision_num_gpu_raw) if _vision_num_gpu_raw.lstrip("-").isdigit() else 0

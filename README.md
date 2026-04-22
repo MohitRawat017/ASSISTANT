@@ -75,7 +75,7 @@ flowchart TD
     D --> F[Windows Automation]
     D --> G[Telegram Bot]
     D --> H[Screen Vision]
-    H --> I[Ollama Vision Model]
+    H --> I[NVIDIA or Ollama Vision Model]
     B --> J[Ollama Text Model]
     B --> K[TTS Output]
     B --> L[Debug Trace Logs]
@@ -88,6 +88,7 @@ flowchart TD
 ### Local-first by design
 - The main assistant runtime uses Ollama locally.
 - Windows automation and screen control happen on-device.
+- Screen vision can use local Ollama or NVIDIA API, depending on configuration.
 - Voice output is local.
 
 ### Actually useful beyond chat
@@ -212,24 +213,43 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
+`requirements.txt` is the source of truth for runtime dependencies. The
+`pyproject.toml` file stores project metadata and pytest settings only.
+
 ### 2. Install PyTorch separately
 
 ```powershell
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 ```
 
-### 3. Make sure Ollama models are available
+### 3. Configure vision provider
 
-You already manage models locally. Tsuzi expects:
+Tsuzi can use NVIDIA for cloud vision and keep Ollama as the local fallback.
+If `VISION_PROVIDER=auto`, NVIDIA is used when `NVIDIA_API_KEY` is set;
+otherwise the local Ollama vision path is used.
 
-- a text model for the assistant runtime via `OLLAMA_MODEL`
-- a vision-capable model via `VISION_MODEL`
+- text model for the assistant runtime: `OLLAMA_MODEL`
+- NVIDIA vision model default: `qwen/qwen3.5-122b-a10b`
+- local Ollama vision fallback default: `qwen3.5:4b`
+
+Rotate any NVIDIA key that has been pasted into chat or logs before storing it
+in `.env`.
 
 ### 4. Configure `.env`
 
 ```env
 OLLAMA_MODEL=qwen3.5:4b
-VISION_MODEL=your_vision_model_here
+
+VISION_PROVIDER=auto
+NVIDIA_API_KEY=your_rotated_nvidia_key
+# Leave VISION_MODEL unset to use provider-aware defaults, or override it:
+# VISION_MODEL=qwen/qwen3.5-122b-a10b
+VISION_TEMPERATURE=0.6
+VISION_TOP_P=0.95
+VISION_MAX_COMPLETION_TOKENS=16384
+
+# Local Ollama fallback settings
+VISION_MODEL_HOST=http://localhost:11434
 VISION_NUM_GPU=99
 
 DEBUG_MODE=true
@@ -247,6 +267,36 @@ REMINDER_EMAIL=you@gmail.com
 ```powershell
 python -m src.main
 ```
+
+---
+
+## Verification
+
+Use the safe smoke gate before opening a PR or starting a new phase:
+
+```powershell
+python -m pytest --collect-only -q --no-test-report
+python -m pytest -q -m safe_smoke --no-test-report
+```
+
+The safe smoke suite is deterministic and avoids desktop automation, network,
+Telegram, Google credentials, Ollama calls, and generated test reports.
+
+Backup artifacts should be compared before deletion. During the readiness audit,
+`flow.ipynb.bak` and `phase5_plan.md.bak` were preserved because they differ from
+their originals; future `*.bak` files are ignored.
+
+Manual/local tests are still useful, but some of them may open apps, alter
+desktop state, use network services, or write ignored files under
+`tests/test_results/`. Those tests are marked with `side_effect` where practical:
+
+```powershell
+python -m pytest
+python tests/run_tests.py --quick
+```
+
+For PRs, use the `Safe smoke` GitHub Actions workflow as the required baseline,
+then request CodeRabbit/GitHub review for the stabilization PR.
 
 ---
 
@@ -286,6 +336,8 @@ Phase 5 is implemented as **tool-driven vision**, not as a raw multimodal chat U
 
 - The text model decides **what** to do.
 - The vision module determines **where** on screen the target UI element is.
+- When NVIDIA vision is active, screenshots are sent to NVIDIA as base64 image
+  inputs. Use `VISION_PROVIDER=ollama` if screen images must stay local.
 - Coordinates are converted back to real screen pixels before mouse automation runs.
 - Vision import failures are handled gracefully so the assistant does not crash.
 
@@ -320,7 +372,7 @@ Raw framework traces are noisy. The current debug path is intentionally narrow: 
 
 - Windows is the primary supported platform right now.
 - The assistant is feature-rich but still evolving, so some flows depend on local desktop state and app availability.
-- Vision quality depends on the selected Ollama vision model and the current screen content.
+- Vision quality depends on the selected NVIDIA/Ollama vision model and the current screen content.
 
 ---
 

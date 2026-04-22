@@ -67,6 +67,7 @@ data/
 tmpclaude-*
 nul
 =*
+*.bak
 
 # Notebooks
 *.ipynb

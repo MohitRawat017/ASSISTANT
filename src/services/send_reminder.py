@@ -53,6 +53,7 @@ import sqlite3
 import subprocess
 import os
 import sys
+import re
 
 # =============================================================================
 # PATH SETUP
@@ -63,6 +64,11 @@ import sys
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(os.path.dirname(SCRIPT_DIR))
+
+
+def _safe_alarm_id(alarm_id: str) -> str:
+    safe_id = re.sub(r"[^A-Za-z0-9_-]", "_", alarm_id.strip())
+    return safe_id or "unknown"
 
 
 def main():
@@ -206,13 +212,17 @@ def main():
     # ==========================================================================
     # STEP 5: Clean up .bat wrapper file
     # ==========================================================================
-    bat_path = os.path.join(PROJECT_ROOT, "data", f"reminder_{args.alarm_id[:8]}.bat")
-    try:
-        if os.path.exists(bat_path):
-            os.remove(bat_path)
-            print(f"[send_reminder] Cleaned up batch file '{bat_path}'")
-    except OSError:
-        pass  # File might be locked, ignore
+    bat_paths = [
+        os.path.join(PROJECT_ROOT, "data", f"reminder_{_safe_alarm_id(args.alarm_id)}.bat"),
+        os.path.join(PROJECT_ROOT, "data", f"reminder_{args.alarm_id[:8]}.bat"),
+    ]
+    for bat_path in dict.fromkeys(bat_paths):
+        try:
+            if os.path.exists(bat_path):
+                os.remove(bat_path)
+                print(f"[send_reminder] Cleaned up batch file '{bat_path}'")
+        except OSError:
+            pass  # File might be locked, ignore
 
     conn.close()
 

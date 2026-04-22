@@ -350,6 +350,13 @@ def setup_daily_jobs(app: Application):
     Args:
         app: Application instance with job_queue
     """
+    if app.job_queue is None:
+        logger.warning(
+            "Telegram JobQueue unavailable; skipping daily jobs. "
+            "Install python-telegram-bot[job-queue] to enable scheduled Telegram jobs."
+        )
+        return
+
     app.job_queue.run_daily(
         morning_digest,
         time=datetime.time(hour=2, minute=30, tzinfo=datetime.timezone.utc),
@@ -382,10 +389,16 @@ def build_telegram_app() -> Application:
     """
     global _app
 
+    token = Config.TELEGRAM_BOT_TOKEN.strip()
+    if not token:
+        raise RuntimeError("TELEGRAM_BOT_TOKEN is not configured")
+    if Config.TELEGRAM_ALLOWED_USER_ID <= 0:
+        raise RuntimeError("TELEGRAM_ALLOWED_USER_ID is not configured")
+
     # Build the application with configuration
     app = (
         ApplicationBuilder()
-        .token(Config.TELEGRAM_BOT_TOKEN)
+        .token(token)
         .connect_timeout(30)   # Time to establish connection
         .read_timeout(30)      # Time to wait for response
         .write_timeout(30)     # Time to send data

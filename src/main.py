@@ -21,15 +21,25 @@ for _lib in ("httpx", "httpcore", "telegram", "apscheduler", "hpack", "langchain
     logging.getLogger(_lib).setLevel(logging.WARNING)
 
 
+def _clean_terminal_input(text: str) -> str:
+    """Normalize stdin text from Windows shells, including BOM-prefixed pipes."""
+    return (
+        text.replace("\ufeff", "")
+        .replace("ï»¿", "")
+        .replace("ď»ż", "")
+        .strip()
+    )
+
+
 def initialize_google_auth():
 
     from src.tools.google.auth import get_credentials
     try:
-        get_credentials()
+        get_credentials(allow_interactive=False)
         console.print("[bold green]Google services authenticated.[/bold green]")
     except Exception as e:
         # Non-fatal: assistant works, just without Google tools
-        console.print(f"[bold yellow]Google auth failed: {e}. Google tools unavailable.[/bold yellow]")
+        console.print(f"[bold yellow]Google auth failed: {e} Google tools unavailable.[/bold yellow]")
 
 
 async def run_terminal(tts, stop_event: asyncio.Event):
@@ -57,13 +67,14 @@ async def run_terminal(tts, stop_event: asyncio.Event):
                 # run_in_executor runs the blocking listen_and_transcribe
                 # in a thread pool, then returns the transcribed text
                 user_input = await loop.run_in_executor(None, asr.listen_and_transcribe)
+                user_input = _clean_terminal_input(user_input or "")
                 if not user_input:
                     continue 
                 console.print(f"[bold cyan]You:[/bold cyan] {user_input}")
             else:
                 # lambda needed because console.input takes a prompt argument
                 user_input = await loop.run_in_executor(
-                    None, lambda: console.input("[bold cyan]You:[/bold cyan] ").strip()
+                    None, lambda: _clean_terminal_input(console.input("[bold cyan]You:[/bold cyan] "))
                 )
                 if not user_input:
                     continue 
@@ -84,7 +95,7 @@ async def run_terminal(tts, stop_event: asyncio.Event):
             console.print(f"\n[bold magenta]Tsuzi:[/bold magenta] {response}\n")
 
             if DEBUG_MODE:
-                console.print(f"[dim yellow]⏱ {elapsed:.2f}s[/dim yellow]\n")
+                console.print(f"[dim yellow]Elapsed: {elapsed:.2f}s[/dim yellow]\n")
 
             # Run TTS in executor so Telegram stays responsive during audio
             # Without this, Telegram would freeze while audio plays

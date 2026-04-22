@@ -36,13 +36,20 @@ test_results = {
 }
 
 
-def pytest_configure(config):
-    """Called before test collection."""
-    test_results["start_time"] = datetime.now().isoformat()
+def pytest_addoption(parser):
+    parser.addoption(
+        "--no-test-report",
+        action="store_true",
+        default=False,
+        help="Do not write generated files under tests/test_results.",
+    )
 
 
 def pytest_unconfigure(config):
     """Called after all tests complete."""
+    if config.getoption("--no-test-report", default=False):
+        return
+
     test_results["end_time"] = datetime.now().isoformat()
     
     # Save detailed log
@@ -208,9 +215,13 @@ def skip_if_missing(module_name: str):
     )
 
 
-# Category markers for organizing tests
 def pytest_configure(config):
-    """Register custom markers."""
+    """Called before test collection."""
+    test_results["start_time"] = datetime.now().isoformat()
+
+    # Category markers for organizing tests
+    config.addinivalue_line("markers", "safe_smoke: deterministic smoke tests safe for CI")
+    config.addinivalue_line("markers", "side_effect: tests that may mutate desktop, network, credentials, or local state")
     config.addinivalue_line("markers", "core: Core tools tests (alarm, calendar, tasks, etc.)")
     config.addinivalue_line("markers", "pc_control: PC control tests (volume, brightness, etc.)")
     config.addinivalue_line("markers", "file_ops: File operation tests")

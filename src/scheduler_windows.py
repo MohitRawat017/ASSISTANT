@@ -1,6 +1,7 @@
 import subprocess
 import sys
 import os
+import re
 from datetime import datetime, timedelta
 
 
@@ -9,9 +10,22 @@ class WindowsScheduler:
     TASK_PREFIX = "TsuziReminder_"
 
     @staticmethod
+    def _safe_alarm_id(alarm_id: str) -> str:
+        safe_id = re.sub(r"[^A-Za-z0-9_-]", "_", alarm_id.strip())
+        return safe_id or "unknown"
+
+    @staticmethod
+    def task_name_for_alarm(alarm_id: str) -> str:
+        return f"{WindowsScheduler.TASK_PREFIX}{WindowsScheduler._safe_alarm_id(alarm_id)}"
+
+    @staticmethod
+    def bat_filename_for_alarm(alarm_id: str) -> str:
+        return f"reminder_{WindowsScheduler._safe_alarm_id(alarm_id)}.bat"
+
+    @staticmethod
     def register_alarm(alarm_id: str, fire_time: str, label: str = "Alarm") -> str:
         # Generate unique task name
-        task_name = f"{WindowsScheduler.TASK_PREFIX}{alarm_id[:8]}"
+        task_name = WindowsScheduler.task_name_for_alarm(alarm_id)
 
         # Find paths
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -34,7 +48,7 @@ class WindowsScheduler:
         # Create .bat wrapper
         bat_dir = os.path.join(base_dir, "data")
         os.makedirs(bat_dir, exist_ok=True)
-        bat_path = os.path.join(bat_dir, f"reminder_{alarm_id[:8]}.bat")
+        bat_path = os.path.join(bat_dir, WindowsScheduler.bat_filename_for_alarm(alarm_id))
 
         with open(bat_path, "w") as f:
             # @ prefix suppresses echo, quotes handle spaces in paths

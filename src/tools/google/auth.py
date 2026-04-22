@@ -23,7 +23,14 @@ def _start_oauth_flow() -> Credentials:
     return flow.run_local_server(port=0)
 
 
-def get_credentials() -> Credentials:
+def _auth_unavailable(reason: str) -> RuntimeError:
+    return RuntimeError(
+        f"{reason} Run an interactive Google auth flow to regenerate "
+        f"{os.path.relpath(TOKEN_PATH, Config.BASE_DIR)}."
+    )
+
+
+def get_credentials(allow_interactive: bool = True) -> Credentials:
     """
     Load or refresh OAuth2 credentials.
     
@@ -43,6 +50,10 @@ def get_credentials() -> Credentials:
     5. Flow exchanges code for tokens
     6. Tokens saved to token.json
     
+    Args:
+        allow_interactive: When False, never open the browser OAuth flow. This is
+            used during app startup so missing/stale credentials degrade cleanly.
+
     Returns:
         Valid Credentials object ready for API calls
         
@@ -53,21 +64,32 @@ def get_credentials() -> Credentials:
 
     # Try to load existing tokens
     if os.path.exists(TOKEN_PATH):
-        creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
+        try:
+            creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
+        except Exception as e:
+            if not allow_interactive:
+                raise _auth_unavailable(f"Saved Google token could not be read: {e}") from e
+            creds = None
 
     # If no valid credentials, need to get new ones
     if not creds or not creds.valid:
         # Try to refresh expired token
         if creds and creds.expired and creds.refresh_token:
+            if not allow_interactive:
+                raise _auth_unavailable(
+                    "Saved Google token is expired; startup will not refresh credentials."
+                )
             try:
                 creds.refresh(Request())
-            except RefreshError:
+            except RefreshError as e:
                 # The saved refresh token is no longer usable (revoked/expired).
                 # Remove it and ask Google for a fresh token pair.
                 if os.path.exists(TOKEN_PATH):
                     os.remove(TOKEN_PATH)
                 creds = _start_oauth_flow()
         else:
+            if not allow_interactive:
+                raise _auth_unavailable("Google credentials are missing or require browser sign-in.")
             # Start OAuth flow - opens browser
             creds = _start_oauth_flow()
 

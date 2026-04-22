@@ -13,6 +13,9 @@ if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8')
 
 import time
+import pytest
+
+pytestmark = pytest.mark.side_effect
 
 
 def test_close_app():

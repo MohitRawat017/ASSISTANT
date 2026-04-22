@@ -11,6 +11,9 @@ Tests:
 
 import sys
 import os
+import pytest
+
+pytestmark = pytest.mark.side_effect
 
 # Fix Windows console encoding
 if sys.platform == "win32":

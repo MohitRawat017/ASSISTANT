@@ -1,0 +1,32 @@
+name: Safe smoke
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - V2_LG
+
+jobs:
+  safe-smoke:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install smoke-test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest python-dotenv
+
+      - name: Collect safe smoke tests
+        run: python -m pytest tests/test_safe_smoke.py --collect-only -q --no-test-report
+
+      - name: Run safe smoke tests
+        run: python -m pytest -q tests/test_safe_smoke.py --no-test-report

@@ -2,15 +2,98 @@ import re
 import base64
 import io
 
-import pyautogui 
-from PIL import Image
-import ollama
-
 from src.utils.config import Config
 
 
 VISION_WIDTH = 1280
 VISION_HEIGHT = 720
+
+
+def _resolve_vision_provider() -> str:
+    provider = Config.VISION_PROVIDER
+    if provider not in {"auto", "nvidia", "ollama"}:
+        raise RuntimeError(
+            "Unsupported VISION_PROVIDER. Use 'auto', 'nvidia', or 'ollama'."
+        )
+    if provider == "auto":
+        return "nvidia" if Config.NVIDIA_API_KEY else "ollama"
+    if provider == "nvidia" and not Config.NVIDIA_API_KEY:
+        raise RuntimeError(
+            "NVIDIA vision provider selected but NVIDIA_API_KEY is not configured."
+        )
+    return provider
+
+
+def _normalize_model_text(response: object) -> str:
+    content = getattr(response, "content", response)
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, dict) and "text" in item:
+                parts.append(str(item["text"]))
+            else:
+                parts.append(str(item))
+        return "\n".join(parts)
+    return str(content)
+
+
+def _chat_with_ollama_vision(messages: list[dict], options: dict | None = None) -> str:
+    import ollama
+
+    client = ollama.Client(host=Config.VISION_MODEL_HOST)
+    response = client.chat(
+        model=Config.VISION_MODEL,
+        messages=messages,
+        options=options or {"num_gpu": Config.VISION_NUM_GPU},
+    )
+    return response["message"]["content"]
+
+
+def _to_nvidia_human_message(message: dict):
+    from langchain_core.messages import HumanMessage
+
+    content = []
+    text = message.get("content", "")
+    if text:
+        content.append({"type": "text", "text": text})
+
+    for image_b64 in message.get("images", []) or []:
+        content.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:image/png;base64,{image_b64}"},
+            }
+        )
+
+    return HumanMessage(content=content)
+
+
+def _chat_with_nvidia_vision(messages: list[dict]) -> str:
+    if not Config.NVIDIA_API_KEY:
+        raise RuntimeError(
+            "NVIDIA vision provider selected but NVIDIA_API_KEY is not configured."
+        )
+
+    from langchain_nvidia_ai_endpoints import ChatNVIDIA
+
+    client = ChatNVIDIA(
+        model=Config.VISION_MODEL,
+        api_key=Config.NVIDIA_API_KEY,
+        temperature=Config.VISION_TEMPERATURE,
+        top_p=Config.VISION_TOP_P,
+        max_completion_tokens=Config.VISION_MAX_COMPLETION_TOKENS,
+    )
+    response = client.invoke([_to_nvidia_human_message(message) for message in messages])
+    return _normalize_model_text(response)
+
+
+def _chat_with_vision_model(messages: list[dict], options: dict | None = None) -> str:
+    provider = _resolve_vision_provider()
+    if provider == "nvidia":
+        return _chat_with_nvidia_vision(messages)
+    return _chat_with_ollama_vision(messages, options)
 
 
 def _screenshot_to_base64(resize: bool = True) -> tuple[str, int, int]:
@@ -27,6 +110,9 @@ def _screenshot_to_base64(resize: bool = True) -> tuple[str, int, int]:
         width/height are the dimensions of the image that was actually encoded
         (not the original screen resolution) — needed for coordinate scaling.
     """
+    import pyautogui
+    from PIL import Image
+
     screenshot = pyautogui.screenshot()
 
     if resize:
@@ -108,14 +194,18 @@ def _bbox_to_screen_coords(bbox: list, img_w: int, img_h: int) -> tuple[int, int
     Returns:
         (click_x, click_y) — centre of the bounding box in screen pixel coords
     """
+    import pyautogui
+
     screen_w, screen_h = pyautogui.size() # get actual screen resolution for final scaling
+    scale_x = screen_w / img_w
+    scale_y = screen_h / img_h
 
     # Handle edge case: some model versions return raw pixel coords (> 1000)
     # instead of normalised coords.  Detect and convert directly.
     if max(bbox) > 1001:
         # Already in pixel coords relative to some resolution — just find centre
-        click_x = int((bbox[0] + bbox[2]) / 2)
-        click_y = int((bbox[1] + bbox[3]) / 2)
+        click_x = int(((bbox[0] + bbox[2]) / 2) * scale_x)
+        click_y = int(((bbox[1] + bbox[3]) / 2) * scale_y)
         return click_x, click_y
 
     # Stage 1: map 0-1000 to image pixel space
@@ -126,9 +216,6 @@ def _bbox_to_screen_coords(bbox: list, img_w: int, img_h: int) -> tuple[int, int
 
     # Stage 2: scale image pixels back to actual screen resolution
     # (necessary because we resized the screenshot before sending it)
-    scale_x = screen_w / img_w
-    scale_y = screen_h / img_h
-
     screen_x1 = img_x1 * scale_x
     screen_y1 = img_y1 * scale_y
     screen_x2 = img_x2 * scale_x
@@ -183,9 +270,8 @@ def find_element(description: str) -> dict:
             f'{{"bbox_2d": null}}'
         )
 
-        # Call configured vision model via the Ollama Python client.
-        response = ollama.chat(
-            model=Config.VISION_MODEL,
+        # Call configured vision model and normalize provider-specific responses.
+        response_text = _chat_with_vision_model(
             messages=[
                 {
                     "role": "user",
@@ -197,8 +283,6 @@ def find_element(description: str) -> dict:
                 "num_gpu": Config.VISION_NUM_GPU,
             },
         )
-
-        response_text = response["message"]["content"]
 
         # If the model explicitly says null, the element isn't visible
         if '"bbox_2d": null' in response_text or (
@@ -221,6 +305,8 @@ def find_element(description: str) -> dict:
         click_x, click_y = _bbox_to_screen_coords(bbox, img_w, img_h)
 
         # Clamp to valid screen bounds so pyautogui never gets an off-screen coord
+        import pyautogui
+
         screen_w, screen_h = pyautogui.size()
         click_x = max(0, min(click_x, screen_w - 1))
         click_y = max(0, min(click_y, screen_h - 1))
@@ -251,8 +337,7 @@ def describe_screen() -> str:
     try:
         b64_image, _, _ = _screenshot_to_base64(resize=True)
 
-        response = ollama.chat(
-            model=Config.VISION_MODEL,
+        response_text = _chat_with_vision_model(
             messages=[
                 {
                     "role": "user",
@@ -267,7 +352,7 @@ def describe_screen() -> str:
             options={"num_gpu": Config.VISION_NUM_GPU},
         )
 
-        return response["message"]["content"]
+        return response_text
 
     except Exception as e:
         return f"Could not analyze screen: {str(e)}"
@@ -302,8 +387,7 @@ def read_screen_text(region_description: str | None = None) -> str:
                 "Return only the text content, organized by location on screen."
             )
 
-        response = ollama.chat(
-            model=Config.VISION_MODEL,
+        response_text = _chat_with_vision_model(
             messages=[
                 {
                     "role": "user",
@@ -314,7 +398,7 @@ def read_screen_text(region_description: str | None = None) -> str:
             options={"num_gpu": Config.VISION_NUM_GPU},
         )
 
-        return response["message"]["content"]
+        return response_text
 
     except Exception as e:
         return f"Could not read screen text: {str(e)}"

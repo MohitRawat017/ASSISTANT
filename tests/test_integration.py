@@ -22,6 +22,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from tests.conftest import check_dependency, skip_if_missing
 
+pytestmark = pytest.mark.side_effect
+
 
 # ── Helper Function (same as test_tools.py) ────────────────────────────────
 
