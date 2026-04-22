@@ -1,6 +1,8 @@
-# Environment Variables
+# Environment Variables & Credentials
 .env
 .env.*
+token.json
+src/credentials/
 
 # Python
 __pycache__/
@@ -24,6 +26,7 @@ wheels/
 .installed.cfg
 *.egg
 MANIFEST
+*.whl
 
 # Virtual Environment
 .venv/
@@ -49,75 +52,46 @@ logs/
 .pytest_cache/
 .coverage
 htmlcov/
-test.py
-
-# Models & Weights (Ignore all large downloaded files)
-models/**/*.bin
-models/**/*.pt
-models/**/*.pth
-models/**/*.safetensors
-models/**/*.ckpt
-models/**/*.onnx
-models/**/*.json
-models/**/*.txt
-models/**/*.model
-
-# Exception: keep READMEs or explicitly tracked config files in models if any
-!models/**/README.md
-
-# Hugging Face Cache
-.cache/
-
-models/
-
-# Wheels
-*.whl
-
-# Reference files (keep locally, don't track)
-src/app.py
-
-# Temporary files
-tmpclaude-*
-nul
-plan.md
-PHASE1_LEARNING.md
-
-# Auto-generated data & artifacts
-data/*.bat
-data/*.png
-data/memory/
-
-# Test output
 tests/test_results/
 *.pyerrors.txt
+test.py
 
-PHASE1_LEARNING
+# Models & Weights
+models/
+.cache/
+
+# Data & Auto-generated artifacts
+data/
+
+# Temporary / Junk files
+tmpclaude-*
+nul
+=*
+
+# Notebooks
+*.ipynb
+
+# Project Documentation / Plans (Local Only)
 plan.md
+Plan.md
+doubts.md
+changes.md
 questions.md
 review.md
-terminal_output.md
 updates.md
+terminal_output.md
+phase*_plan.md
+PHASE1_LEARNING*
 
-# LangGraph Agent (saved for v2)
+# Specific Files / Folders to ignore
+src/app.py
 src/graph/
 src/tools/tool_retriever.py
 tests/test_tool_retriever.py
-
-# Google OAuth credentials — never commit
-src/credentials/
-token.json
-
-data
-doubts.md
-
-managers/habit_manader.py 
-managers/news_manager.py
-managers/weather_manager.py 
-managers/task_manager.py 
-managers/calender_manager.py 
-
-changes.md 
-flow.ipynb 
-phase4_plan.md
-phase5_plan.md
-
+src/managers/habit_manader.py
+src/managers/habit_manager.py
+src/managers/news_manager.py
+src/managers/weather_manager.py
+src/managers/task_manager.py
+src/managers/calender_manager.py
+src/managers/calendar_manager.py
