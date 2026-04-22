@@ -1,70 +1,3 @@
-"""
-================================================================================
-TSUZI ASSISTANT - TELEGRAM BOT INTERFACE
-================================================================================
-
-This module provides a Telegram bot interface for the assistant, allowing
-users to interact via Telegram mobile app. It runs concurrently with the
-terminal interface via asyncio.gather().
-
-KEY FEATURES:
-=============
-1. Text Message Handling: Send/receive text messages
-2. Voice Note Processing: Transcribe voice notes with Whisper
-3. Proactive Notifications: Push alerts for alarms/reminders
-4. Morning Digest: Daily summary at 8 AM IST
-5. Rate Limiting: Prevent abuse
-6. Security: Only respond to authorized user(s)
-
-ARCHITECTURE: SHARED STATE
-==========================
-Telegram shares with Terminal:
-- Same LangGraph agent (different thread_ids)
-- Same long-term memory (user facts)
-- Same stop_event (coordinated shutdown)
-
-Telegram has separate:
-- Short-term conversation history (thread_id = "telegram_{chat_id}")
-- Chat data (stored in context.chat_data)
-
-POLLING VS WEBHOOKS:
-====================
-This bot uses POLLING (long polling):
-- Bot repeatedly asks Telegram servers: "any new messages?"
-- Simpler to implement, no public URL needed
-- Alternative: Webhooks (Telegram pushes to our server)
-
-WHY POLLING FOR THIS PROJECT:
-- No public server/URL required
-- Simpler setup for development
-- Works behind NAT/firewall
-
-================================================================================
-KEY CONCEPTS FOR INTERVIEW:
-================================================================================
-
-Q: How does the bot know which user to respond to?
-A: is_allowed() checks the user ID against TELEGRAM_ALLOWED_USER_ID.
-   Only the configured user can interact with the bot. This prevents
-   random people from accessing your assistant.
-
-Q: What is rate limiting and why is it needed?
-A: is_rate_limited() tracks messages per user (max 10/minute).
-   Without this, a user could:
-   - Spam the bot with messages
-   - Trigger expensive API calls repeatedly
-   - Potentially hit rate limits on Google/Telegram APIs
-
-Q: How do voice notes work?
-A: 1. Telegram sends .ogg audio file
-   2. Download to temp directory
-   3. Faster-Whisper transcribes (supports .ogg natively)
-   4. Transcribed text goes to agent
-   5. Agent's response sent back as text
-
-================================================================================
-"""
-
 import os
 import time
 import asyncio
@@ -88,9 +21,6 @@ from src.utils.config import Config
 
 logger = logging.getLogger(__name__)
 
-# =============================================================================
-# APPLICATION SINGLETON
-# =============================================================================
 # The Application instance is stored globally so tools can access it
 # for proactive notifications (e.g., alarm triggers pushing to Telegram)
 
@@ -99,49 +29,16 @@ _app: Application | None = None
 
 def get_app() -> Application | None:
     """
-    Return the running Telegram Application instance.
-    
-    WHY THIS EXISTS:
-    Tools like alarms need to send notifications proactively.
-    They can't import telegram_bot (circular import), so they
-    call get_app() to get the bot instance.
-    
-    Returns:
-        Application instance or None if not initialized
+    for tools that need to send proactive notifications, like alarms or timers.
     """
     return _app
 
 
-# =============================================================================
-# SECURITY
-# =============================================================================
+# Security check 
 
 def is_allowed(update: Update) -> bool:
-    """
-    Check if the user is authorized to use the bot.
-    
-    SECURITY MODEL:
-    - Single-user: Only TELEGRAM_ALLOWED_USER_ID can interact
-    - Set in .env: TELEGRAM_ALLOWED_USER_ID=123456789
-    - Find your ID: Message @userinfobot on Telegram
-    
-    Without this check, ANYONE who finds your bot could:
-    - Read your calendar/emails
-    - Execute commands on your PC
-    - Access your personal data
-    
-    Args:
-        update: Telegram update object containing message info
-        
-    Returns:
-        True if user is authorized, False otherwise
-    """
     return update.effective_user.id == Config.TELEGRAM_ALLOWED_USER_ID
 
-
-# =============================================================================
-# RATE LIMITING
-# =============================================================================
 
 # Dictionary to track message timestamps per user
 # Key: user_id, Value: list of timestamps
@@ -150,26 +47,7 @@ _message_times: dict[int, list[float]] = defaultdict(list)
 
 def is_rate_limited(user_id: int) -> bool:
     """
-    Check if user has exceeded rate limit.
-    
-    RATE LIMIT: 10 messages per 60 seconds per user
-    
-    IMPLEMENTATION:
-    - Store list of message timestamps per user
-    - Remove timestamps older than 60 seconds
-    - If 10+ remaining, user is rate limited
-    
-    WHY RATE LIMIT:
-    - Prevent accidental spam (user holding enter)
-    - Protect against malicious flooding
-    - Avoid hitting external API limits
-    - Reduce load on LLM/Ollama
-    
-    Args:
-        user_id: Telegram user ID
-        
-    Returns:
-        True if rate limited (should reject), False if OK
+    Simple rate limiter: max 10 messages per user per 60 seconds.
     """
     now = time.time()
     
@@ -186,10 +64,6 @@ def is_rate_limited(user_id: int) -> bool:
     _message_times[user_id].append(now)
     return False
 
-
-# =============================================================================
-# MESSAGE HANDLERS
-# =============================================================================
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
@@ -256,11 +130,6 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     5. Process with agent
     6. Send response
     
-    WHY FASTER-WHISPER:
-    - Supports .ogg/opus natively (no conversion needed)
-    - Fast with CTranslate2 optimization
-    - Good quality transcription
-    
     CLEANUP:
     The .ogg file is deleted after processing to save space.
     gc.collect() ensures file handles are released before deletion.
@@ -326,10 +195,6 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
 
-# =============================================================================
-# COMMAND HANDLERS
-# =============================================================================
-
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Handle /start command - initial bot interaction.
@@ -368,13 +233,6 @@ async def cmd_clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
     Instead of actually deleting from the checkpointer (complex),
     we create a new thread_id. The old conversation still exists
     but won't be loaded anymore.
-    
-    NEW THREAD_ID FORMAT:
-    telegram_{chat_id}_{timestamp}
-    
-    Example: telegram_123456789_1709344800
-    
-    The timestamp ensures each /clear creates a unique new thread.
     """
     if not is_allowed(update):
         return
@@ -386,27 +244,11 @@ async def cmd_clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Memory cleared, master. Fresh start!")
 
 
-# =============================================================================
-# ERROR HANDLER
-# =============================================================================
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Global error handler for the Telegram bot.
-    
-    This catches all unhandled exceptions in the bot.
-    Logs the error but doesn't crash - the bot stays running.
-    
-    Args:
-        update: The update that caused the error (may be None)
-        context: Context containing the error object
-    """
     logger.error(f"Telegram error: {context.error}", exc_info=context.error)
 
 
-# =============================================================================
-# PROACTIVE NOTIFICATIONS
-# =============================================================================
 
 async def send_notification(context: ContextTypes.DEFAULT_TYPE):
     """
@@ -456,10 +298,6 @@ def schedule_notification(
         name=f"notification_{chat_id}_{int(time.time())}",
     )
 
-
-# =============================================================================
-# MORNING DIGEST
-# =============================================================================
 
 async def morning_digest(context: ContextTypes.DEFAULT_TYPE):
     """
@@ -519,10 +357,6 @@ def setup_daily_jobs(app: Application):
     )
 
 
-# =============================================================================
-# APPLICATION BUILDER
-# =============================================================================
-
 def build_telegram_app() -> Application:
     """
     Build, configure, and return the Telegram Application.
@@ -575,92 +409,3 @@ def build_telegram_app() -> Application:
     # Store as singleton for tools to access
     _app = app
     return app
-
-
-# =============================================================================
-# INTERVIEW QUESTIONS FOR THIS FILE
-# =============================================================================
-"""
-Q1: What's the difference between polling and webhooks?
-A: Polling: Bot repeatedly asks Telegram "any new messages?"
-   - Simpler, no public URL needed, works behind NAT
-   - Higher latency (polling interval)
-   - More API calls (even when no messages)
-   
-   Webhooks: Telegram pushes messages to your server
-   - Lower latency (immediate delivery)
-   - Fewer API calls
-   - Requires public HTTPS URL
-   - More complex setup (need web server)
-
-Q2: How does thread_id isolate conversations?
-A: Each chat has a unique thread_id (telegram_{chat_id}). The LangGraph
-   checkpointer stores conversation history per thread_id. So:
-   - Chat A has history A
-   - Chat B has history B
-   - They never see each other's context
-   
-   Terminal uses "terminal_main", Telegram uses "telegram_{chat_id}".
-
-Q3: Why store _app as a global singleton?
-A: Tools (like alarms) need to send notifications proactively, but they
-   can't import telegram_bot.py (would cause circular imports). Instead:
-   1. telegram_bot stores app in global _app
-   2. Tools call get_app() to access it
-   3. Tools use app.bot.send_message() or schedule_notification()
-
-Q4: How does rate limiting work?
-A: We store a list of timestamps for each user. On each message:
-   1. Remove timestamps older than 60 seconds
-   2. If 10+ timestamps remain, reject the message
-   3. Otherwise, add current timestamp and process
-   
-   This implements a "sliding window" rate limiter - max 10 messages
-   in any 60-second window.
-
-Q5: Why does /clear create a new thread_id instead of deleting history?
-A: Deleting from LangGraph checkpointer is complex (requires direct DB access).
-   Creating a new thread_id is simpler:
-   - Old history still exists (could be recovered)
-   - New conversation starts fresh
-   - No database manipulation needed
-   
-   For a production system, you might want actual deletion for privacy.
-
-Q6: How would you support multiple users?
-A: 1. Store allowed user IDs in a database instead of single env var
-   2. Each user gets their own long-term memory (memory.user_id)
-   3. Rate limit per user (already done)
-   4. User-specific configuration (timezone, preferences)
-   
-   The main change is making memory user-aware rather than global.
-
-Q7: What happens if the bot crashes?
-A: The error_handler catches the exception and logs it, but the bot
-   doesn't crash. In main.py, run_telegram() also has a try/except
-   that catches errors and logs them without re-raising. Terminal
-   continues working even if Telegram fails completely.
-
-Q8: Why use JobQueue for scheduled tasks instead of asyncio.sleep?
-A: JobQueue is better because:
-   - Persists across restarts (if persistence enabled)
-   - Handles timezone conversion
-   - Can cancel/repeat jobs
-   - Runs in separate thread (doesn't block event loop)
-   
-   asyncio.sleep would be simpler but less robust.
-
-Q9: How does the morning digest work?
-A: 1. At 2:30 AM UTC (8:00 AM IST), JobQueue triggers morning_digest
-   2. morning_digest calls arun_agent with a summary request
-   3. Agent uses its tools (get_tasks, web_search) to gather info
-   4. Agent formats a concise response
-   5. Response is sent to Telegram
-   The agent does the heavy lifting!
-
-Q10: What's the gc.collect() in voice handler for?
-A: After ASR processes the .ogg file, the file handle might still be
-   held by the model or libraries. gc.collect() forces Python to
-   release unreferenced objects, including file handles. This allows
-   os.remove() to succeed and clean up the temp file.
-"""

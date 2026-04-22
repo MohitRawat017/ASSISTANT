@@ -1,41 +1,17 @@
-# src/vision/screen_vision.py
-# ─────────────────────────────────────────────────────────────────────────────
-# Vision module — uses a configurable Ollama vision model to understand screens.
-#
-# ARCHITECTURE:
-#   Text LLM (default qwen3.5:4b) calls a tool
-#     → tool calls find_element() here
-#       → this module takes a screenshot, sends it to Config.VISION_MODEL
-#         → parses bounding box → converts to real pixel coords → returns
-#
-# MODEL CONFIG:
-#   - Config.VISION_MODEL chooses which Ollama model handles vision.
-#   - Config.VISION_NUM_GPU controls GPU offload (default is GPU-enabled).
-#   - Override these via .env without changing this file.
-# ─────────────────────────────────────────────────────────────────────────────
-
 import re
 import base64
 import io
 
-import pyautogui
+import pyautogui 
 from PIL import Image
 import ollama
 
 from src.utils.config import Config
 
-# ─── Constants ───────────────────────────────────────────────────────────────
 
-# We resize every screenshot to these fixed dimensions before sending to the
-# vision model.  This helps avoid coordinate drift from internal resizing:
-# Ollama internally resizes images, but by pre-resizing to a known size we
-# control the aspect ratio and can scale coordinates back to screen resolution
-# with full accuracy.
 VISION_WIDTH = 1280
 VISION_HEIGHT = 720
 
-
-# ─── Internal Helpers ────────────────────────────────────────────────────────
 
 def _screenshot_to_base64(resize: bool = True) -> tuple[str, int, int]:
     """
@@ -62,10 +38,11 @@ def _screenshot_to_base64(resize: bool = True) -> tuple[str, int, int]:
         # Use original screen resolution — accurate but may trigger Ollama bug
         w, h = screenshot.size
 
-    buffer = io.BytesIO()
-    screenshot.save(buffer, format="PNG")
-    b64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
+    buffer = io.BytesIO() # save the image to an in-memory buffer instead of disk
+    screenshot.save(buffer, format="PNG") 
+    b64 = base64.b64encode(buffer.getvalue()).decode("utf-8") # encode the image bytes to base64 string
     return b64, w, h
+
 
 
 def _parse_bbox(text: str) -> list | None:
@@ -131,7 +108,7 @@ def _bbox_to_screen_coords(bbox: list, img_w: int, img_h: int) -> tuple[int, int
     Returns:
         (click_x, click_y) — centre of the bounding box in screen pixel coords
     """
-    screen_w, screen_h = pyautogui.size()
+    screen_w, screen_h = pyautogui.size() # get actual screen resolution for final scaling
 
     # Handle edge case: some model versions return raw pixel coords (> 1000)
     # instead of normalised coords.  Detect and convert directly.

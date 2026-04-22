@@ -1,48 +1,3 @@
-"""
-================================================================================
-ALARM MANAGER
-================================================================================
-
-Manages alarm storage and retrieval using SQLite. This is the data layer for
-alarms - it doesn't handle the actual triggering (that's Windows Task Scheduler).
-
-RESPONSIBILITIES:
-=================
-1. Store alarm data (time, label, enabled status)
-2. Track which alarms have fired (notified flag)
-3. Store Windows Task Scheduler task names for cleanup
-4. Provide CRUD operations for alarms
-
-WHY SQLITE?
-===========
-- Simple, no external dependencies
-- Persistent across restarts
-- Fast for small datasets
-- Easy to query and filter
-
-DATABASE SCHEMA:
-================
-alarms table:
-- id: UUID primary key
-- time: Time in HH:MM format (24-hour)
-- label: User-defined alarm name
-- enabled: Whether alarm is active
-- notified: Whether alarm has fired
-- scheduled_task_name: Windows Task Scheduler task name
-
-================================================================================
-KEY CONCEPTS FOR INTERVIEW:
-================================================================================
-
-Q: Why separate alarm storage from alarm triggering?
-A: Separation of concerns:
-   - AlarmManager: Data storage, CRUD operations
-   - WindowsScheduler: Actual alarm triggering
-   This makes the system testable and portable.
-
-================================================================================
-"""
-
 import sqlite3
 import uuid
 import os
@@ -53,23 +8,7 @@ DATA_DIR = os.path.join(Config.BASE_DIR, "data")
 
 
 class AlarmManager:
-    """
-    Manages alarms in SQLite database.
-    
-    USAGE:
-    ======
-    mgr = AlarmManager()
-    
-    # Add alarm
-    alarm_id = mgr.add_alarm("07:00", "Wake up")
-    
-    # Get all alarms
-    alarms = mgr.get_alarms()
-    
-    # Mark as notified
-    mgr.mark_notified(alarm_id)
-    """
-    
+
     def __init__(self, db_path: str = None):
         """
         Initialize the alarm manager.
@@ -265,79 +204,3 @@ class AlarmManager:
                 conn.commit()
         except Exception as e:
             print(f"[AlarmManager] Error setting scheduled task: {e}")
-
-
-# =============================================================================
-# INTERVIEW QUESTIONS FOR THIS FILE
-# =============================================================================
-"""
-Q1: Why use UUID instead of auto-increment for alarm IDs?
-A: UUIDs are:
-   - Globally unique: No conflicts even across different devices
-   - Non-sequential: Can't guess other alarm IDs
-   - Independent: Not tied to SQLite implementation
-   
-   Auto-increment would work, but UUIDs are more portable.
-
-Q2: What is the 'notified' flag for?
-A: When a Windows Task Scheduler alarm fires:
-   1. send_reminder.py reads the alarm from database
-   2. Sends notification
-   3. Sets notified=1
-   This prevents double-notification if something goes wrong.
-
-Q3: Why store scheduled_task_name?
-A: Windows Task Scheduler tasks persist even after our app closes.
-   When an alarm fires, we need to:
-   1. Delete the Windows Task
-   2. Delete the .bat file
-   
-   Storing the task name allows send_reminder.py to find and delete it.
-
-Q4: How would you add recurring alarms?
-A: Add a 'recur' column:
-   - "once": One-time alarm (current behavior)
-   - "daily": Repeat every day
-   - "weekdays": Mon-Fri only
-   - "weekly": Same day each week
-   
-   When alarm fires, if recurring, create new Windows Task for next occurrence.
-
-Q5: What's the difference between 'enabled' and 'notified'?
-A: enabled: User can disable without deleting (like snooze)
-   notified: System flag - alarm has fired
-   An alarm can be enabled but already notified, or disabled but not notified.
-
-Q6: Why store time as string (HH:MM) instead of datetime?
-A: Alarms are time-of-day, not specific dates. The Windows Task Scheduler
-   handles the date calculation. This keeps the data model simple.
-
-Q7: How would you add alarm sound customization?
-A: Add a 'sound' column:
-   - Default: system beep
-   - Custom: path to audio file
-   
-   send_reminder.py would play the specified sound.
-
-Q8: What happens if the database file is corrupted?
-A: SQLite is ACID compliant, so corruption is rare. If it happens:
-   - sqlite3.connect() might raise exception
-   - Methods return empty lists/None
-   - App continues running but alarms don't work
-   
-   Recovery: Delete alarms.db, it will be recreated.
-
-Q9: Why use sqlite3.Row for row_factory?
-A: sqlite3.Row returns dict-like objects instead of tuples:
-   - Access by column name: row['time'] instead of row[1]
-   - More readable code
-   - Easier to convert to dict with dict(row)
-
-Q10: How would you add alarm categories (wake, reminder, meeting)?
-A: Add a 'category' column:
-   ALTER TABLE alarms ADD COLUMN category TEXT DEFAULT 'general'
-   
-   Then filter: SELECT * FROM alarms WHERE category = 'wake'
-   
-   This would allow different handling per category.
-"""

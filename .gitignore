@@ -108,3 +108,10 @@ src/credentials/
 token.json
 
 data
+doubts.md
+
+managers/habit_manader.py 
+managers/news_manager.py
+managers/weather_manager.py 
+managers/task_manager.py 
+managers/calender_manager.py 
