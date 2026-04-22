@@ -115,3 +115,9 @@ managers/news_manager.py
 managers/weather_manager.py 
 managers/task_manager.py 
 managers/calender_manager.py 
+
+changes.md 
+flow.ipynb 
+phase4_plan.md
+phase5_plan.md
+
