@@ -50,7 +50,7 @@ pycaw>=20181226                # Volume control
 screen-brightness-control>=0.23.0  # Brightness control
 pyautogui>=0.9.54              # Screenshot, mouse/keyboard, minimize all
 pywinauto>=0.6.8               # Window management (use backend="uia" for Win11)
-psutil>=5.9.0                  # Process listing and management
+psutil>=7.2.2                  # Process listing and management
 comtypes>=1.2.0                # COM interface for pycaw volume control
 Pillow>=10.0.0                 # Screenshot resizing for vision
 
