@@ -17,8 +17,13 @@ def create_calendar_event(
     Creates a Google Calendar event.
     """
     try:
+        # Validate ISO 8601 times before touching the API; a ValueError
+        # falls through to the failure return below
+        datetime.fromisoformat(start_time)
+        datetime.fromisoformat(end_time)
+
         service = get_calendar_service()
-        
+
         # Build event object for API
         event = {
             "summary": title,
@@ -42,9 +47,13 @@ def create_calendar_event(
         return {"success": False, "error": str(e)}
 
 
-def get_upcoming_events(max_results: int = 10) -> list:
+def get_upcoming_events(max_results: int = 10) -> dict:
     """
     Returns the next N calendar events from now.
+
+    Returns:
+        {"success": True, "events": [...]} on success
+        {"success": False, "error": "..."} on failure
     """
     try:
         service = get_calendar_service()
@@ -68,10 +77,16 @@ def get_upcoming_events(max_results: int = 10) -> list:
         # Extract relevant fields from API response
         events = []
         for item in result.get("items", []):
+            # Cancelled events lack start/end; skip them
+            if item.get("status") == "cancelled":
+                continue
+
             # Handle both dateTime (timed events) and date (all-day events)
-            start = item["start"].get("dateTime", item["start"].get("date", ""))
-            end = item["end"].get("dateTime", item["end"].get("date", ""))
-            
+            start_obj = item.get("start", {})
+            end_obj = item.get("end", {})
+            start = start_obj.get("dateTime", start_obj.get("date", ""))
+            end = end_obj.get("dateTime", end_obj.get("date", ""))
+
             events.append(
                 {
                     "id": item.get("id", ""),
@@ -81,9 +96,11 @@ def get_upcoming_events(max_results: int = 10) -> list:
                     "description": item.get("description", ""),
                 }
             )
-        return events
+        return {"success": True, "events": events}
     except Exception as e:
-        return []
+        # HttpError.reason is the short API message; str(e) dumps the whole blob
+        reason = getattr(e, "reason", None) or str(e)
+        return {"success": False, "error": str(reason)[:200]}
 
 
 def delete_calendar_event(event_id: str) -> dict:

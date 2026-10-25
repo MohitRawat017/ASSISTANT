@@ -1,6 +1,7 @@
 # Environment Variables & Credentials
 .env
 .env.*
+!.env.example
 token.json
 src/credentials/
 
@@ -36,7 +37,8 @@ env/
 
 # IDE & Editors
 .idea/
-.vscode/
+.vscode/*
+!.vscode/extensions.json
 *.swp
 *.swo
 *~
@@ -86,7 +88,6 @@ PHASE1_LEARNING*
 
 # Specific Files / Folders to ignore
 src/app.py
-src/graph/
 src/tools/tool_retriever.py
 tests/test_tool_retriever.py
 src/managers/habit_manader.py

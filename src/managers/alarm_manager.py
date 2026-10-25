@@ -1,7 +1,13 @@
 import sqlite3
 import uuid
 import os
+import logging
+from datetime import datetime
+
+from src.scheduler_windows import WindowsScheduler
 from src.utils.config import Config
+
+logger = logging.getLogger(__name__)
 
 # Data directory for SQLite database
 DATA_DIR = os.path.join(Config.BASE_DIR, "data")
@@ -26,8 +32,12 @@ class AlarmManager:
         Called on every instantiation - safe to call multiple times
         because of "IF NOT EXISTS".
         """
-        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
-        
+        # Guard for bare-filename db paths ("alarms.db"): dirname is ""
+        # and makedirs("") would raise.
+        db_dir = os.path.dirname(self.db_path)
+        if db_dir:
+            os.makedirs(db_dir, exist_ok=True)
+
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS alarms (
@@ -82,6 +92,15 @@ class AlarmManager:
         Returns:
             Alarm ID (UUID string) on success, None on failure
         """
+        # Trust boundary: reject anything that is not a valid 24-hour HH:MM
+        # time ("25:99", "7am") here instead of letting it explode later
+        # in the scheduler.
+        try:
+            datetime.strptime(time, "%H:%M")
+        except ValueError:
+            logger.error(f"[AlarmManager] Invalid time '{time}' (expected HH:MM)")
+            return None
+
         alarm_id = str(uuid.uuid4())
         try:
             with sqlite3.connect(self.db_path) as conn:
@@ -92,7 +111,7 @@ class AlarmManager:
                 conn.commit()
                 return alarm_id
         except Exception as e:
-            print(f"[AlarmManager] Error adding alarm: {e}")
+            logger.error(f"[AlarmManager] Error adding alarm: {e}")
             return None
     
     def get_alarms(self) -> list:
@@ -108,7 +127,7 @@ class AlarmManager:
                 rows = conn.execute("SELECT * FROM alarms ORDER BY time ASC").fetchall()
                 return [dict(row) for row in rows]
         except Exception as e:
-            print(f"[AlarmManager] Error loading alarms: {e}")
+            logger.error(f"[AlarmManager] Error loading alarms: {e}")
             return []
     
     def get_alarm_by_id(self, alarm_id: str) -> dict:
@@ -129,22 +148,34 @@ class AlarmManager:
                 ).fetchone()
                 return dict(row) if row else None
         except Exception as e:
-            print(f"[AlarmManager] Error fetching alarm: {e}")
+            logger.error(f"[AlarmManager] Error fetching alarm: {e}")
             return None
     
     def delete_alarm(self, alarm_id: str):
         """
         Delete an alarm by ID.
+
+        Unregisters the Windows scheduled task (unregister_task also removes
+        the generated .bat wrapper) BEFORE dropping the DB row, so the task
+        cannot fire later against a deleted alarm. A scheduler failure is
+        logged but never blocks the DB delete.
         
         Args:
             alarm_id: UUID of the alarm to delete
         """
         try:
+            WindowsScheduler.unregister_task(
+                WindowsScheduler.task_name_for_alarm(alarm_id)
+            )
+        except Exception as e:
+            logger.error(f"[AlarmManager] Error unregistering scheduled task: {e}")
+
+        try:
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute("DELETE FROM alarms WHERE id = ?", (alarm_id,))
                 conn.commit()
         except Exception as e:
-            print(f"[AlarmManager] Error deleting alarm: {e}")
+            logger.error(f"[AlarmManager] Error deleting alarm: {e}")
     
     def toggle_alarm(self, alarm_id: str, enabled: bool):
         """
@@ -162,7 +193,7 @@ class AlarmManager:
                 )
                 conn.commit()
         except Exception as e:
-            print(f"[AlarmManager] Error toggling alarm: {e}")
+            logger.error(f"[AlarmManager] Error toggling alarm: {e}")
     
     def mark_notified(self, alarm_id: str):
         """
@@ -182,7 +213,7 @@ class AlarmManager:
                 )
                 conn.commit()
         except Exception as e:
-            print(f"[AlarmManager] Error marking notified: {e}")
+            logger.error(f"[AlarmManager] Error marking notified: {e}")
     
     def set_scheduled_task(self, alarm_id: str, task_name: str):
         """
@@ -203,4 +234,4 @@ class AlarmManager:
                 )
                 conn.commit()
         except Exception as e:
-            print(f"[AlarmManager] Error setting scheduled task: {e}")
+            logger.error(f"[AlarmManager] Error setting scheduled task: {e}")

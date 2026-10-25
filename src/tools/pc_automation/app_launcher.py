@@ -70,7 +70,7 @@ def _focus_app_by_process(executable: str) -> bool:
             proc_name = proc.name().lower()
             
             # Match process name
-            if exe_name in proc_name or proc_name.startswith(exe_name):
+            if exe_name in proc_name:
                 window.set_focus()
                 return True
         except Exception:
@@ -108,9 +108,9 @@ def open_application(app_name: str) -> dict:
                 continue
 
     # App not running or couldn't focus - open new instance
+    open_errors = []
     # Try known map first
     if name_lower in APP_MAP:
-        executable = APP_MAP[name_lower]
         try:
             if executable.startswith("ms-"):
                 # Windows URI scheme (settings, etc.)
@@ -118,23 +118,24 @@ def open_application(app_name: str) -> dict:
             else:
                 subprocess.Popen(executable)
             return {"success": True, "app": app_name, "method": "app_map", "focused": False}
-        except Exception:
-            pass  # Fall through to AppOpener
+        except Exception as e:
+            open_errors.append(f"app_map: {e}")  # Fall through to AppOpener
 
     # Try AppOpener (handles installed apps by display name)
     try:
         import AppOpener
         AppOpener.open(app_name)
         return {"success": True, "app": app_name, "method": "appopener", "focused": False}
-    except Exception:
-        pass
+    except Exception as e:
+        open_errors.append(f"appopener: {e}")
 
     # Last resort — direct subprocess
     try:
         subprocess.Popen(app_name)
         return {"success": True, "app": app_name, "method": "subprocess", "focused": False}
     except Exception as e:
-        return {"success": False, "error": f"Could not open '{app_name}': {str(e)}"}
+        open_errors.append(f"subprocess: {e}")
+        return {"success": False, "error": f"Could not open '{app_name}': {'; '.join(open_errors)}"}
 
 
 def close_application(app_name: str) -> dict:
@@ -144,7 +145,9 @@ def close_application(app_name: str) -> dict:
     """
     name_lower = app_name.lower().strip()
     executable = APP_MAP.get(name_lower, app_name)
-    exe_name = executable.lower().replace(".exe", "")
+    # Exact name match only (case-insensitive, ".exe" suffix optional):
+    # substring matching let "close windows explorer" kill explorer.exe
+    exe_name = executable.lower().removesuffix(".exe")
 
     killed = 0
     for proc in psutil.process_iter(["name", "pid"]):
@@ -152,11 +155,18 @@ def close_application(app_name: str) -> dict:
             proc_name_raw = proc.info.get("name")
             if proc_name_raw is None:
                 continue
-            proc_name = proc_name_raw.lower().replace(".exe", "")
-            if exe_name in proc_name or proc_name in exe_name:
-                proc.terminate()
-                killed += 1
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            proc_name = proc_name_raw.lower().removesuffix(".exe")
+            if proc_name != exe_name:
+                continue
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except psutil.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)
+            # Count only processes confirmed dead after terminate/kill above
+            killed += 1
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.TimeoutExpired):
             continue
 
     if killed > 0:
@@ -168,14 +178,16 @@ def is_app_running(app_name: str) -> dict:
     """Check if an application is currently running."""
     name_lower = app_name.lower().strip()
     executable = APP_MAP.get(name_lower, app_name)
-    exe_name = executable.lower().replace(".exe", "")
+    # Exact name match only (case-insensitive, ".exe" suffix optional):
+    # substring matching gave false positives (e.g. "code" matched any process containing it)
+    exe_name = executable.lower().removesuffix(".exe")
 
     for proc in psutil.process_iter(["name"]):
         try:
             proc_name_raw = proc.info.get("name")
             if proc_name_raw is None:
                 continue
-            if exe_name in proc_name_raw.lower():
+            if proc_name_raw.lower().removesuffix(".exe") == exe_name:
                 return {"running": True, "app": app_name}
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
