@@ -83,6 +83,12 @@ def get_credentials(allow_interactive: bool = True) -> Credentials:
                 creds.refresh(Request())
             except RefreshError as e:
                 # The saved refresh token is no longer usable (revoked/expired).
+                if not os.path.exists(CREDENTIALS_PATH):
+                    # Without credentials.json we cannot run the OAuth flow;
+                    # keep the (stale) token rather than deleting it.
+                    raise _auth_unavailable(
+                        "Google refresh token is stale and credentials.json is missing."
+                    ) from e
                 # Remove it and ask Google for a fresh token pair.
                 if os.path.exists(TOKEN_PATH):
                     os.remove(TOKEN_PATH)
@@ -93,9 +99,13 @@ def get_credentials(allow_interactive: bool = True) -> Credentials:
             # Start OAuth flow - opens browser
             creds = _start_oauth_flow()
 
-        # Save the new/refreshed tokens
-        with open(TOKEN_PATH, "w") as token:
+        # Save the new/refreshed tokens atomically: write a temp file next to
+        # the target, then swap it in, so a crash mid-write cannot corrupt
+        # token.json
+        tmp_path = TOKEN_PATH + ".tmp"
+        with open(tmp_path, "w") as token:
             token.write(creds.to_json())
+        os.replace(tmp_path, TOKEN_PATH)
 
     return creds
 
@@ -111,7 +121,9 @@ def get_calendar_service():
         service = get_calendar_service()
         events = service.events().list(calendarId='primary').execute()
     """
-    return build("calendar", "v3", credentials=get_credentials())
+    # Non-interactive: an expired token during an agent tool call must never
+    # silently launch a blocking browser OAuth flow.
+    return build("calendar", "v3", credentials=get_credentials(allow_interactive=False))
 
 
 def get_tasks_service():
@@ -125,7 +137,8 @@ def get_tasks_service():
         service = get_tasks_service()
         tasks = service.tasks().list(tasklist='@default').execute()
     """
-    return build("tasks", "v1", credentials=get_credentials())
+    # Non-interactive: see get_calendar_service().
+    return build("tasks", "v1", credentials=get_credentials(allow_interactive=False))
 
 
 def get_gmail_service():
@@ -139,4 +152,5 @@ def get_gmail_service():
         service = get_gmail_service()
         messages = service.users().messages().list(userId='me').execute()
     """
-    return build("gmail", "v1", credentials=get_credentials())
+    # Non-interactive: see get_calendar_service().
+    return build("gmail", "v1", credentials=get_credentials(allow_interactive=False))

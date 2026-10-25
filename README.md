@@ -382,6 +382,35 @@ The broader roadmap continues beyond this point, but the repository currently re
 
 ---
 
+## Documentation
+
+This repository ships a canonical knowledge base under `docs/`. Read it
+before making non-trivial changes.
+
+| Topic | Document |
+|-------|----------|
+| Product vision | [`docs/product/vision.md`](docs/product/vision.md) |
+| Roadmap | [`docs/product/roadmap.md`](docs/product/roadmap.md) |
+| Architecture | [`docs/architecture/overview.md`](docs/architecture/overview.md) |
+| Tech stack | [`docs/architecture/tech-stack.md`](docs/architecture/tech-stack.md) |
+| Folder structure | [`docs/architecture/folder-structure.md`](docs/architecture/folder-structure.md) |
+| Coding standards | [`docs/standards/coding.md`](docs/standards/coding.md) |
+| Testing standards | [`docs/standards/testing.md`](docs/standards/testing.md) |
+| Git standards | [`docs/standards/git.md`](docs/standards/git.md) |
+| Glossary | [`docs/glossary.md`](docs/glossary.md) |
+| Decision records | [`docs/decisions/`](docs/decisions/) |
+
+## Contributing
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md). By participating you agree to
+abide by the [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
+
+## Security
+
+To report a security vulnerability, see [`SECURITY.md`](SECURITY.md).
+
+---
+
 ## License
 
-MIT
+MIT — see [`LICENSE`](LICENSE) © 2026 MohitRawat017

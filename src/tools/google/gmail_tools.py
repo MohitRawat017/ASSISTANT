@@ -52,25 +52,30 @@ def send_gmail(to: str, subject: str, body: str) -> dict:
         return {"success": False, "error": str(e)}
 
 
-def read_unread_emails(max_results: int = 5) -> list:
+def read_unread_emails(max_results: int = 5) -> dict:
     """
     Returns unread emails from Gmail inbox.
-    
+
     FILTERING:
     ==========
     Uses labelIds: ["UNREAD", "INBOX"] to find:
     - Unread messages that are in the inbox
-    
+
+    Note: category tabs (Promotions, Social, Updates, Forums) are extra
+    labels layered on top of INBOX, so unread mail in those tabs IS
+    included.
+
     Does NOT include:
     - Read messages
-    - Unread messages in other labels (Promotions, Social)
-    
+    - Unread messages outside the inbox (archived, sent, spam)
+
     Args:
         max_results: Maximum number of emails to return
-        
+
     Returns:
-        List of email dicts with: id, from, subject, snippet, date
-        Empty list on error
+        {"success": True, "emails": [...]} on success, where each email
+        has: id, from, subject, snippet, date
+        {"success": False, "error": "..."} on failure
     """
     try:
         service = get_gmail_service()
@@ -120,9 +125,11 @@ def read_unread_emails(max_results: int = 5) -> list:
                     "date": headers.get("Date", ""),
                 }
             )
-        return emails
+        return {"success": True, "emails": emails}
     except Exception as e:
-        return []
+        # HttpError.reason is the short API message; str(e) dumps the whole blob
+        reason = getattr(e, "reason", None) or str(e)
+        return {"success": False, "error": str(reason)[:200]}
 
 
 def mark_as_read(message_id: str) -> dict:
@@ -148,10 +155,10 @@ def mark_as_read(message_id: str) -> dict:
         return {"success": False, "error": str(e)}
 
 
-def search_emails(query: str, max_results: int = 5) -> list:
+def search_emails(query: str, max_results: int = 5) -> dict:
     """
     Searches Gmail using Gmail search syntax.
-    
+
     GMAIL SEARCH SYNTAX:
     ====================
     - "from:name" - emails from a sender
@@ -159,14 +166,15 @@ def search_emails(query: str, max_results: int = 5) -> list:
     - "after:2025/3/1" - emails after a date
     - "is:unread" - unread emails
     - Plain keywords search subject and body
-    
+
     Args:
         query: Gmail search query
         max_results: Maximum number of results
-        
+
     Returns:
-        List of matching email dicts with: id, from, subject, snippet
-        Empty list on error
+        {"success": True, "emails": [...]} on success, where each email
+        has: id, from, subject, snippet
+        {"success": False, "error": "..."} on failure
     """
     try:
         service = get_gmail_service()
@@ -209,7 +217,9 @@ def search_emails(query: str, max_results: int = 5) -> list:
                     "snippet": detail.get("snippet", ""),
                 }
             )
-        return emails
+        return {"success": True, "emails": emails}
     except Exception as e:
-        return []
+        # HttpError.reason is the short API message; str(e) dumps the whole blob
+        reason = getattr(e, "reason", None) or str(e)
+        return {"success": False, "error": str(reason)[:200]}
 

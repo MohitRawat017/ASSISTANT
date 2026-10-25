@@ -22,22 +22,12 @@ WHY GOOGLE TASKS?
 API DOCUMENTATION:
 ==================
 https://developers.google.com/tasks/reference/rest
-
-================================================================================
-KEY CONCEPTS FOR INTERVIEW:
-================================================================================
-
-Q: What is "@default" tasklist?
-A: Every Google account has a default task list. Using "@default" as the
-   tasklist ID refers to this main list without needing to know its actual ID.
-
-================================================================================
 """
 
 from src.tools.google.auth import get_tasks_service
 
 
-def add_google_task(title: str, notes: str = "", due: str = None) -> dict:
+def add_google_task(title: str, notes: str = "", due: str | None = None) -> dict:
     """
     Adds a task to the default Google Tasks list.
     
@@ -78,26 +68,27 @@ def add_google_task(title: str, notes: str = "", due: str = None) -> dict:
         return {"success": False, "error": str(e)}
 
 
-def get_google_tasks(show_completed: bool = False) -> list:
+def get_google_tasks(show_completed: bool = False) -> dict:
     """
     Returns tasks from the default Google Tasks list.
-    
+
     STATUS VALUES:
     ==============
     - "needsAction": Task is pending
     - "completed": Task is done
-    
+
     Args:
         show_completed: Whether to include completed tasks
-        
+
     Returns:
-        List of task dicts with: id, title, notes, due, status
-        Empty list on error
+        {"success": True, "tasks": [...]} on success, where each task has:
+        id, title, notes, due, status
+        {"success": False, "error": "..."} on failure
     """
     try:
         service = get_tasks_service()
-        
-        # Fetch tasks
+
+        # Fetch tasks; showCompleted=False excludes completed tasks server-side
         result = (
             service.tasks()
             .list(
@@ -106,13 +97,9 @@ def get_google_tasks(show_completed: bool = False) -> list:
             )
             .execute()
         )
-        
+
         tasks = []
         for item in result.get("items", []):
-            # Filter by status if not showing completed
-            if not show_completed and item.get("status") == "completed":
-                continue
-                
             tasks.append(
                 {
                     "id": item.get("id", ""),
@@ -122,9 +109,11 @@ def get_google_tasks(show_completed: bool = False) -> list:
                     "status": item.get("status", "needsAction"),
                 }
             )
-        return tasks
+        return {"success": True, "tasks": tasks}
     except Exception as e:
-        return []
+        # HttpError.reason is the short API message; str(e) dumps the whole blob
+        reason = getattr(e, "reason", None) or str(e)
+        return {"success": False, "error": str(reason)[:200]}
 
 
 def complete_google_task(task_id: str) -> dict:
@@ -182,85 +171,3 @@ def delete_google_task(task_id: str) -> dict:
         return {"success": True}
     except Exception as e:
         return {"success": False, "error": str(e)}
-
-
-# =============================================================================
-# INTERVIEW QUESTIONS FOR THIS FILE
-# =============================================================================
-"""
-Q1: What's the difference between tasklist and task?
-A: Tasklist: A collection/container (like a project)
-   Task: An individual to-do item within a tasklist
-   
-   A user can have multiple tasklists, but we use @default for simplicity.
-
-Q2: Why use patch() instead of update() for completing tasks?
-A: patch(): Updates only specified fields (partial update)
-   update(): Replaces entire resource (full update)
-   
-   patch() is safer - won't accidentally overwrite other fields.
-
-Q3: How would you create a new tasklist?
-A: service.tasklists().insert(body={"title": "New List"}).execute()
-   Returns the new tasklist ID for future operations.
-
-Q4: What fields can a task have?
-A: - id: Unique identifier
-   - title: Task name
-   - notes: Description
-   - due: Due date (RFC 3339 timestamp)
-   - status: "needsAction" or "completed"
-   - completed: Completion timestamp (auto-set)
-   - deleted: Soft delete flag
-   - hidden: Hidden from list
-   - parent: Parent task ID (for subtasks)
-   - position: Order position
-
-Q5: How would you implement subtasks?
-A: Set the "parent" field to another task's ID:
-   service.tasks().insert(
-       tasklist="@default",
-       body={
-           "title": "Subtask",
-           "parent": parent_task_id
-       }
-   ).execute()
-
-Q6: What's the rate limit for Tasks API?
-A: - 500,000 requests/day
-   - 10 requests/second
-   
-   Very generous for personal use.
-
-Q7: How would you move a task to a different list?
-A: Use tasks().move():
-   service.tasks().move(
-       tasklist="@default",
-       task=task_id,
-       destinationTasklist=other_list_id
-   ).execute()
-
-Q8: How would you reorder tasks?
-A: Use the "position" field with tasks().move() or patch():
-   service.tasks().move(
-       tasklist="@default",
-       task=task_id,
-       parent=parent_id,      # Optional: new parent
-       previous=prev_task_id  # Insert after this task
-   ).execute()
-
-Q9: Can tasks have reminders?
-A: Not directly in Google Tasks API. But you can:
-   1. Read task due dates
-   2. Create Calendar events or alarms for reminders
-   3. Or use Google Calendar reminders integration
-
-Q10: How would you sync tasks to a local database?
-A: 1. Store last sync timestamp
-   2. On sync, fetch all tasks
-   3. Compare with local state (by ID)
-   4. Update/create/delete as needed
-   5. Store new sync timestamp
-   
-   Or use the updatedMin parameter for incremental sync.
-"""

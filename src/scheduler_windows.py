@@ -26,35 +26,40 @@ class WindowsScheduler:
     def register_alarm(alarm_id: str, fire_time: str, label: str = "Alarm") -> str:
         # Generate unique task name
         task_name = WindowsScheduler.task_name_for_alarm(alarm_id)
+        safe_alarm_id = WindowsScheduler._safe_alarm_id(alarm_id)
 
         # Find paths
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         script_path = os.path.join(base_dir, "src", "services", "send_reminder.py")
         python_exe = sys.executable
 
-        # Determine next occurrence of fire_time
-        now = datetime.now()
-        hour, minute = map(int, fire_time.split(":"))
-        alarm_dt = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-        
-        # If time already passed today, schedule for tomorrow
-        if alarm_dt <= now:
-            alarm_dt += timedelta(days=1)
-
-        # Format for schtasks
-        schedule_date = alarm_dt.strftime("%m/%d/%Y")
-        schedule_time = fire_time
-
-        # Create .bat wrapper
-        bat_dir = os.path.join(base_dir, "data")
-        os.makedirs(bat_dir, exist_ok=True)
-        bat_path = os.path.join(bat_dir, WindowsScheduler.bat_filename_for_alarm(alarm_id))
-
-        with open(bat_path, "w") as f:
-            # @ prefix suppresses echo, quotes handle spaces in paths
-            f.write(f'@"{python_exe}" "{script_path}" --alarm_id {alarm_id}\n')
-
+        bat_path = None
         try:
+            # Reject invalid times ("25:99") before building files or schtasks args
+            datetime.strptime(fire_time, "%H:%M")
+
+            # Determine next occurrence of fire_time
+            now = datetime.now()
+            hour, minute = map(int, fire_time.split(":"))
+            alarm_dt = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+            # If time already passed today, schedule for tomorrow
+            if alarm_dt <= now:
+                alarm_dt += timedelta(days=1)
+
+            # Format for schtasks
+            schedule_date = alarm_dt.strftime("%m/%d/%Y")
+            schedule_time = fire_time
+
+            # Create .bat wrapper
+            bat_dir = os.path.join(base_dir, "data")
+            os.makedirs(bat_dir, exist_ok=True)
+            bat_path = os.path.join(bat_dir, WindowsScheduler.bat_filename_for_alarm(alarm_id))
+
+            with open(bat_path, "w", encoding="ascii") as f:
+                # @ prefix suppresses echo, quotes handle spaces in paths
+                f.write(f'@"{python_exe}" "{script_path}" --alarm_id {safe_alarm_id}\n')
+
             # Create scheduled task using Windows schtasks command
             result = subprocess.run(
                 [
@@ -63,7 +68,7 @@ class WindowsScheduler:
                     "/tr", f'"{bat_path}"',     # Program to run (.bat), quoted for spaces in path
                     "/sc", "once",              # Schedule: one time
                     "/st", schedule_time,       # Start time (HH:MM)
-                    "/sd", schedule_date,       # Start date (MM/DD/YYYY)
+                    "/sd", schedule_date,       # Start date; shortcut: %m/%d/%Y assumes en-US locale format
                     "/f",                       # Force: overwrite if exists
                 ],
                 capture_output=True,
@@ -82,8 +87,17 @@ class WindowsScheduler:
                 except OSError:
                     pass
                 return ""
+        except ValueError:
+            print(f"[Scheduler] Invalid fire_time '{fire_time}' (expected HH:MM)")
+            return ""
         except Exception as e:
             print(f"[Scheduler] Error creating task: {e}")
+            # Clean up .bat file on failure
+            if bat_path:
+                try:
+                    os.remove(bat_path)
+                except OSError:
+                    pass
             return ""
 
     @staticmethod
@@ -98,6 +112,19 @@ class WindowsScheduler:
             )
             if result.returncode == 0:
                 print(f"[Scheduler] Removed task '{task_name}'")
+                # Also remove the .bat wrapper so data/ doesn't leak orphan files
+                base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                bat_path = os.path.join(
+                    base_dir,
+                    "data",
+                    WindowsScheduler.bat_filename_for_alarm(
+                        task_name.removeprefix(WindowsScheduler.TASK_PREFIX)
+                    ),
+                )
+                try:
+                    os.remove(bat_path)
+                except OSError:
+                    pass
             return result.returncode == 0
         except Exception as e:
             print(f"[Scheduler] Error removing task: {e}")

@@ -38,6 +38,10 @@ class Config:
 
     GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 
+    # Main assistant runtime — local Ollama (local-first contract)
+    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3.5:4b")
+    OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+
     MEMORY_DIR = os.path.join(BASE_DIR, "data", "memory")
 
     GMAIL_ADDRESS = os.getenv("GMAIL_ADDRESS", "")

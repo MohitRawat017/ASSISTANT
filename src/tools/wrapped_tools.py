@@ -1,8 +1,11 @@
+import logging
 import os
 import re
 from datetime import datetime, timedelta
 from langchain_core.tools import tool
 from src.utils.config import Config
+
+logger = logging.getLogger(__name__)
 
 alarm_mgr = None
 memory_store = None
@@ -27,78 +30,50 @@ def get_memory_store():
     return memory_store
 
 
-def parse_duration(duration_str: str) -> int:
-    """
-    Parse a human-readable duration string into seconds.
-    
-    EXAMPLES:
-    - "10 minutes" → 600
-    - "1 hour" → 3600
-    - "90 seconds" → 90
-    - "5" → 300 (defaults to minutes if no unit)
-    
-    Args:
-        duration_str: Human-readable duration string
-        
-    Returns:
-        Duration in seconds
-    """
-    duration_str = duration_str.lower().strip()
-    total = 0
-
-    # Regex patterns for different time units
-    # Each pattern captures a number followed by optional unit
-    patterns = [
-        (r'(\d+)\s*h(?:our)?s?', 3600),      # hours
-        (r'(\d+)\s*m(?:in(?:ute)?s?)?', 60), # minutes
-        (r'(\d+)\s*s(?:ec(?:ond)?s?)?', 1),  # seconds
-    ]
-    for pattern, multiplier in patterns:
-        match = re.search(pattern, duration_str)
-        if match:
-            total += int(match.group(1)) * multiplier
-
-    # If no units found, assume minutes
-    if total == 0:
-        nums = re.findall(r'\d+', duration_str)
-        if nums:
-            total = int(nums[0]) * 60
-    return total
-
-
-def normalize_time(time_str: str) -> str:
+def normalize_time(time_str: str):
     """
     Normalize a time string to 24-hour HH:MM format.
-    
+
     EXAMPLES:
     - "7am" → "07:00"
     - "2:30pm" → "14:30"
     - "14:30" → "14:30" (already normalized)
+    - "9:5pm" → "21:05"
     - "12am" → "00:00" (midnight)
     - "12pm" → "12:00" (noon)
-    
+    - "noon" → "12:00", "midnight" → "00:00"
+
     Args:
         time_str: Time in various formats
-        
+
     Returns:
-        Time in HH:MM (24-hour format)
+        Time in HH:MM (24-hour format), or None when the input is not
+        a valid time — callers must treat None as an invalid-time error,
+        never store it.
     """
     time_str = time_str.lower().strip()
-    # Match: hour, optional minutes, optional am/pm
-    match = re.match(r'(\d{1,2}):?(\d{2})?\s*(am|pm)?', time_str)
-    if match:
-        hour = int(match.group(1))
-        minute = int(match.group(2)) if match.group(2) else 0
-        period = match.group(3)
-        
-        # Convert 12-hour to 24-hour
-        if period == 'pm' and hour < 12:
-            hour += 12
-        elif period == 'am' and hour == 12:
-            hour = 0  # 12am = midnight
-            
-        return f"{hour:02d}:{minute:02d}"
-    return time_str
+    if time_str in ("noon", "12 noon"):
+        return "12:00"
+    if time_str in ("midnight", "12 midnight"):
+        return "00:00"
+
+    # Anchored match: hour, optional 1-2 digit minutes, optional am/pm
+    match = re.fullmatch(r'(\d{1,2})(?::(\d{1,2}))?\s*(am|pm)?', time_str)
+    if not match:
+        return None
+    hour = int(match.group(1))
+    minute = int(match.group(2)) if match.group(2) else 0
+    period = match.group(3)
+
+    # Convert 12-hour to 24-hour
+    if period == 'pm' and hour < 12:
+        hour += 12
+    elif period == 'am' and hour == 12:
+        hour = 0  # 12am = midnight
+
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return None
+    return f"{hour:02d}:{minute:02d}"
 
 
 def parse_date(date_str: str) -> str:
@@ -115,10 +90,11 @@ def parse_date(date_str: str) -> str:
         date_str: Date in various formats
         
     Returns:
-        Date in YYYY-MM-DD format
+        Date in YYYY-MM-DD format, or None when the input is not a
+        recognizable date — callers must treat None as an error.
     """
     date_str = date_str.lower().strip()
-    
+
     # Try ISO format first
     try:
         return datetime.strptime(date_str, "%Y-%m-%d").strftime("%Y-%m-%d")
@@ -126,7 +102,7 @@ def parse_date(date_str: str) -> str:
         pass
 
     today = datetime.now()
-    
+
     # Relative dates
     if date_str in ("today", ""):
         return today.strftime("%Y-%m-%d")
@@ -144,7 +120,7 @@ def parse_date(date_str: str) -> str:
                 ahead += 7  # Skip a week
             return (today + timedelta(days=ahead)).strftime("%Y-%m-%d")
 
-    return today.strftime("%Y-%m-%d")
+    return None
 
 
 # PRODUCTIVITY TOOLS
@@ -171,7 +147,9 @@ def set_alarm(time: str, label: str = "Alarm") -> str:
     try:
         mgr = get_alarm_manager()
         normalized = normalize_time(time)
-        
+        if normalized is None:
+            return f"Invalid time '{time}'. Use a format like '7am', '14:30', or '6:30 pm'."
+
         # Add alarm to SQLite database
         alarm_id = mgr.add_alarm(normalized, label)
 
@@ -183,9 +161,10 @@ def set_alarm(time: str, label: str = "Alarm") -> str:
                 task_name = WindowsScheduler.register_alarm(alarm_id, normalized, label)
                 if task_name:
                     mgr.set_scheduled_task(alarm_id, task_name)
-            except:
-                pass  # Windows scheduler is optional
-                
+            except Exception as e:
+                # Windows scheduler is optional — the alarm still fires in-app
+                logger.warning("Windows scheduler registration failed for alarm %s: %s", alarm_id, e)
+
             return f"Alarm set for {normalized}" + (f" ({label})" if label != "Alarm" else "") + "."
         return "Failed to set alarm."
     except Exception as e:
@@ -198,7 +177,8 @@ def web_search(query: str) -> str:
     Search the internet for real-time information.
 
     USE when the user asks for:
-    - Current/recent information: "latest news about X", "what happened with X", Datese
+    - Current/recent information: "latest news about X", "what happened with X",
+      anything time-sensitive like dates or scores
     - Weather: "weather in [city]", "temperature in [place] today"
     - Specific facts you don't know with certainty: stats, prices, scores
     - External content: "find articles about X", "look up X"
@@ -211,9 +191,9 @@ def web_search(query: str) -> str:
 
     Args:
         query: Search query string
-        
+
     Returns:
-        Top 3 search results with titles and snippets
+        Top 3 search results with titles, URLs, and snippets
     """
     try:
         from ddgs import DDGS
@@ -222,9 +202,11 @@ def web_search(query: str) -> str:
             results = list(ddgs.text(query, max_results=5))
 
         if results:
-            lines = [f"Results for '{query}':"]
-            for i, r in enumerate(results[:3], 1):
-                lines.append(f"{i}. {r.get('title', '')}")
+            shown = results[:3]
+            lines = [f"Results for '{query}' (showing {len(shown)} of {len(results)}):"]
+            for i, r in enumerate(shown, 1):
+                url = r.get("href") or r.get("url") or ""
+                lines.append(f"{i}. {r.get('title', '')}" + (f" — {url}" if url else ""))
                 body = r.get("body", "")[:200]  # Truncate long snippets
                 if body:
                     lines.append(f"   {body}")
@@ -428,14 +410,20 @@ def get_upcoming_events(max_results: int = 5) -> str:
     Returns:
         List of upcoming events with start times
     """
-    events = _get_upcoming_events(max_results)
+    result = _get_upcoming_events(max_results)
+    if isinstance(result, dict):
+        if not result.get("success"):
+            return f"Could not fetch calendar events: {result.get('error', 'unknown error')}"
+        events = result.get("events", [])
+    else:
+        events = result  # legacy list shape
     if not events:
         return "No upcoming events found."
     return "\n".join([f"• {e['title']} at {e['start']}" for e in events])
 
 
 @tool
-def add_task(title: str, notes: str = "", due: str = None) -> str:
+def add_task(title: str, notes: str = "", due: str | None = None) -> str:
     """
     Add a new task or to-do item to Google Tasks.
 
@@ -451,14 +439,18 @@ def add_task(title: str, notes: str = "", due: str = None) -> str:
     Args:
         title: Task title / description.
         notes: Optional additional notes.
-        due: Optional due date "YYYY-MM-DD" (e.g. "2025-03-15")
-        
+        due: Optional due date — "YYYY-MM-DD", "today", "tomorrow", or a day
+             name (e.g. "friday")
+
     Returns:
         Confirmation message
     """
-    # Convert date to ISO format expected by Google Tasks API
-    if due and len(due) == 10:
-        due = due + "T00:00:00.000Z"
+    # Convert date to the RFC3339 format expected by Google Tasks API
+    if due:
+        parsed = parse_date(due)
+        if parsed is None:
+            return f"Could not understand due date '{due}'. Use YYYY-MM-DD, 'today', or 'tomorrow'."
+        due = f"{parsed}T00:00:00.000Z"
     result = _add_google_task(title, notes, due)
     return f"Task '{title}' added." if result["success"] else f"Failed to add task: {result.get('error', '')}"
 
@@ -479,7 +471,13 @@ def get_tasks() -> str:
     Returns:
         Formatted list of pending tasks with IDs
     """
-    tasks = _get_google_tasks()
+    result = _get_google_tasks()
+    if isinstance(result, dict):
+        if not result.get("success"):
+            return f"Could not fetch tasks: {result.get('error', 'unknown error')}"
+        tasks = result.get("tasks", [])
+    else:
+        tasks = result  # legacy list shape
     if not tasks:
         return "No pending tasks."
     return "\n".join(
@@ -553,7 +551,13 @@ def read_emails(max_results: int = 5) -> str:
     Returns:
         Sender, subject, and preview for each unread email
     """
-    emails = _read_unread_emails(max_results)
+    result = _read_unread_emails(max_results)
+    if isinstance(result, dict):
+        if not result.get("success"):
+            return f"Could not read emails: {result.get('error', 'unknown error')}"
+        emails = result.get("emails", [])
+    else:
+        emails = result  # legacy list shape
     if not emails:
         return "No unread emails."
     lines = []
@@ -584,10 +588,77 @@ def search_emails(query: str) -> str:
     Returns:
         List of matching emails with subject and sender
     """
-    emails = _search_emails(query)
+    result = _search_emails(query)
+    if isinstance(result, dict):
+        if not result.get("success"):
+            return f"Could not search emails: {result.get('error', 'unknown error')}"
+        emails = result.get("emails", [])
+    else:
+        emails = result  # legacy list shape
     if not emails:
         return "No emails found matching that query."
     return "\n".join([f"• {e['subject']} — from {e['from']}" for e in emails])
+
+
+@tool
+def delete_calendar_event(event_id: str) -> str:
+    """
+    Delete a Google Calendar event.
+
+    USE when the user says:
+    - "cancel the meeting", "delete that event", "remove X from my calendar"
+
+    DO NOT use for:
+    - Tasks (use delete_google_task)
+
+    Args:
+        event_id: Google Calendar event ID (from get_upcoming_events context)
+
+    Returns:
+        Confirmation or error message
+    """
+    result = _delete_calendar_event(event_id)
+    return "Event deleted." if result["success"] else f"Failed to delete event: {result.get('error', '')}"
+
+
+@tool
+def delete_google_task(task_id: str) -> str:
+    """
+    Delete a task from Google Tasks permanently.
+
+    USE when the user says:
+    - "delete task [X]", "remove that task", "get rid of [X] from my list"
+
+    DO NOT use for:
+    - Marking a task done (use complete_task — it keeps history)
+
+    Args:
+        task_id: Google Task ID (from get_tasks output, in brackets like [abc123])
+
+    Returns:
+        Confirmation or error message
+    """
+    result = _delete_google_task(task_id)
+    return "Task deleted." if result["success"] else f"Failed to delete task: {result.get('error', '')}"
+
+
+@tool
+def mark_email_read(email_id: str) -> str:
+    """
+    Mark a Gmail message as read.
+
+    USE when the user says:
+    - "mark that as read", "I've read that one", after summarizing an email
+      the user acknowledged
+
+    Args:
+        email_id: Gmail message ID (from read_emails context)
+
+    Returns:
+        Confirmation or error message
+    """
+    result = _mark_as_read(email_id)
+    return "Email marked as read." if result["success"] else f"Failed to mark email read: {result.get('error', '')}"
 
 
 # =============================================================================
@@ -663,25 +734,6 @@ def close_app(app_name: str) -> str:
     return f"Could not close {app_name}: {result.get('error', 'not found')}"
 
 
-def _legacy_list_open_windows() -> str:
-    """
-    List all currently open windows on the PC.
-    Use when user asks 'what apps are open', 'what windows do I have open',
-    'what's running', 'list my open programs', etc.
-    Returns a list of open window titles and their processes.
-    """
-    windows = get_open_windows()
-    if not windows:
-        return "No open windows found."
-    seen = set()
-    result = []
-    for w in windows:
-        if w["title"] not in seen:
-            seen.add(w["title"])
-            result.append(f"• {w['title']} ({w['process']})")
-    return "\n".join(result[:20])  # cap at 20 to avoid huge responses
-
-
 @tool
 def list_open_windows() -> str:
     """
@@ -719,6 +771,8 @@ def list_open_windows() -> str:
         return "No open windows found."
 
     output = result[:20]
+    if len(result) > 20:
+        output.append(f"(showing 20 of {len(result)} windows)")
     if scan_errors:
         unique_errors = list(dict.fromkeys(scan_errors))
         output.append("Window scan status: " + ", ".join(unique_errors))
@@ -735,11 +789,13 @@ def focus_app(window_title: str) -> str:
     Returns confirmation or error.
     """
     result = focus_window(window_title)
-    return f"Focused {result.get('window', window_title)}." if result["success"] else result.get("error")
+    if result["success"]:
+        return f"Focused {result.get('window', window_title)}."
+    return result.get("error", "could not focus window")
 
 
 @tool
-def control_volume(action: str, level: int = None) -> str:
+def control_volume(action: str, level: int | None = None) -> str:
     """
     Control system volume.
     action: "set" (requires level), "get", "mute", "unmute"
@@ -751,22 +807,30 @@ def control_volume(action: str, level: int = None) -> str:
     Returns confirmation with volume level.
     """
     if action == "set" and level is not None:
-        set_volume(level)
-        return f"Volume set to {level}%, master."
+        result = set_volume(level)
+        if result.get("success"):
+            return f"Volume set to {level}%, master."
+        return f"Could not set volume: {result.get('error', 'unknown error')}"
     elif action == "get":
         result = get_volume()
-        return f"Current volume: {result['volume']}%"
+        if result.get("success"):
+            return f"Current volume: {result.get('volume', 0)}%"
+        return f"Could not get volume: {result.get('error', 'unknown error')}"
     elif action == "mute":
-        mute_volume()
-        return "Volume muted, master."
+        result = mute_volume()
+        if result.get("success"):
+            return "Volume muted, master."
+        return f"Could not mute volume: {result.get('error', 'unknown error')}"
     elif action == "unmute":
-        unmute_volume()
-        return "Volume unmuted, master."
+        result = unmute_volume()
+        if result.get("success"):
+            return "Volume unmuted, master."
+        return f"Could not unmute volume: {result.get('error', 'unknown error')}"
     return "Invalid volume action. Use: set, get, mute, unmute"
 
 
 @tool
-def control_brightness(action: str, level: int = None) -> str:
+def control_brightness(action: str, level: int | None = None) -> str:
     """
     Control display brightness.
     action: "set" (requires level), "get"
@@ -823,8 +887,13 @@ def click_at(x: int, y: int, button: str = "left") -> str:
     button: "left", "right", or "middle"
     Returns confirmation.
     """
-    mouse_click(x, y, button=button)
-    return f"Clicked at ({x}, {y}) with {button} button."
+    try:
+        result = mouse_click(x, y, button=button)
+        if isinstance(result, dict) and result.get("success") is False:
+            return f"Click failed: {result.get('error', 'unknown error')}"
+        return f"Clicked at ({x}, {y}) with {button} button."
+    except Exception as e:
+        return f"Click failed: {e}"
 
 
 @tool
@@ -833,10 +902,17 @@ def type_text_tool(text: str) -> str:
     Type text at the current cursor position.
     Use when user wants to type something in the currently focused app.
     The app must already be focused and have a text input active.
+    ASCII text only — non-ASCII characters (accents, CJK, emoji) cannot be
+    typed this way.
     Returns confirmation.
     """
-    type_text(text)
-    return f"Typed: {text}"
+    try:
+        result = type_text(text)
+        if isinstance(result, dict) and result.get("success") is False:
+            return f"Typing failed: {result.get('error', 'unknown error')}"
+        return f"Typed: {text}"
+    except Exception as e:
+        return f"Typing failed: {e}"
 
 
 @tool
@@ -849,8 +925,19 @@ def press_keyboard_key(key: str) -> str:
     For shortcuts use hotkey_tool instead.
     Returns confirmation.
     """
-    press_key(key)
-    return f"Pressed {key}."
+    try:
+        result = press_key(key)
+        if isinstance(result, dict) and result.get("success") is False:
+            return f"Key press failed: {result.get('error', 'unknown error')}"
+        return f"Pressed {key}."
+    except Exception as e:
+        return f"Key press failed: {e}"
+
+
+# Key sets that turn typed text into arbitrary command execution or power
+# actions. Reachable via prompt injection from email/web content the agent
+# reads, so they are blocked outright.
+_BLOCKED_HOTKEY_SETS = ({frozenset({"win", "r"}), frozenset({"win", "x"})})
 
 
 @tool
@@ -867,11 +954,24 @@ def hotkey_tool(keys: str) -> str:
       "alt,f4"         → close window
       "win,d"          → show desktop
       "ctrl,shift,esc" → task manager
+    BLOCKED for safety: "win,r" (Run dialog) and "win,x" (power menu) — they
+    can turn typed text into arbitrary command execution. Use open_app to
+    launch programs instead.
     Returns confirmation.
     """
-    key_list = [k.strip() for k in keys.split(",")]
-    hotkey(*key_list)
-    return f"Pressed hotkey: {' + '.join(key_list)}"
+    key_list = [k.strip().lower() for k in keys.split(",")]
+    if frozenset(k for k in key_list if k) in _BLOCKED_HOTKEY_SETS:
+        return (
+            "Blocked: win+r / win+x hotkeys are disabled for safety — they let "
+            "typed text execute arbitrary commands. Use open_app instead."
+        )
+    try:
+        result = hotkey(*key_list)
+        if isinstance(result, dict) and result.get("success") is False:
+            return f"Hotkey failed: {result.get('error', 'unknown error')}"
+        return f"Pressed hotkey: {' + '.join(key_list)}"
+    except Exception as e:
+        return f"Hotkey failed: {e}"
 
 
 @tool
@@ -903,15 +1003,20 @@ def minimize_all() -> str:
 try:
     from src.vision.screen_vision import find_element, describe_screen, read_screen_text
     _VISION_IMPORT_ERROR = None
-except ImportError:
+except Exception as _e:  # ImportError plus any other import-time failure
     find_element = None
     describe_screen = None
     read_screen_text = None
-    _VISION_IMPORT_ERROR = True
+    _VISION_IMPORT_ERROR = str(_e)
 
 
 def _vision_module_available() -> bool:
     return _VISION_IMPORT_ERROR is None
+
+
+def _vision_unavailable_message() -> str:
+    reason = f": {_VISION_IMPORT_ERROR}" if _VISION_IMPORT_ERROR else ""
+    return f"Vision module not available{reason}"
 
 
 @tool
@@ -932,7 +1037,7 @@ def find_and_click(description: str, button: str = "left") -> str:
     Do NOT assume the click succeeded — check the return value.
     """
     if not _vision_module_available():
-        return "Vision module not available"
+        return _vision_unavailable_message()
 
     # Resolve element coordinates via the vision model
     result = find_element(description)
@@ -942,7 +1047,9 @@ def find_and_click(description: str, button: str = "left") -> str:
 
     x, y = result["x"], result["y"]
     # Use the existing pc_automation mouse_click — already imported at module level
-    mouse_click(x, y, button=button)
+    click_result = mouse_click(x, y, button=button)
+    if isinstance(click_result, dict) and click_result.get("success") is False:
+        return f"Found '{description}' but could not click: {click_result.get('error', 'unknown error')}"
     return f"Found '{description}' and clicked at ({x}, {y}), master."
 
 
@@ -956,7 +1063,7 @@ def find_and_double_click(description: str) -> str:
     Returns confirmation or error.
     """
     if not _vision_module_available():
-        return "Vision module not available"
+        return _vision_unavailable_message()
 
     result = find_element(description)
 
@@ -980,7 +1087,7 @@ def find_and_right_click(description: str) -> str:
     Returns confirmation or error.
     """
     if not _vision_module_available():
-        return "Vision module not available"
+        return _vision_unavailable_message()
 
     result = find_element(description)
 
@@ -989,7 +1096,9 @@ def find_and_right_click(description: str) -> str:
 
     x, y = result["x"], result["y"]
     # Use pc_automation's mouse_click with button="right"
-    mouse_click(x, y, button="right")
+    click_result = mouse_click(x, y, button="right")
+    if isinstance(click_result, dict) and click_result.get("success") is False:
+        return f"Found '{description}' but could not click: {click_result.get('error', 'unknown error')}"
     return f"Found '{description}' and right-clicked at ({x}, {y}), master."
 
 
@@ -1008,7 +1117,7 @@ def find_and_type(description: str, text: str) -> str:
     import time
 
     if not _vision_module_available():
-        return "Vision module not available"
+        return _vision_unavailable_message()
 
     # Step 1: Locate and click the target field
     result = find_element(description)
@@ -1017,13 +1126,17 @@ def find_and_type(description: str, text: str) -> str:
 
     x, y = result["x"], result["y"]
     # Click to give the field focus using the existing pc_automation wrapper
-    mouse_click(x, y)
+    click_result = mouse_click(x, y)
+    if isinstance(click_result, dict) and click_result.get("success") is False:
+        return f"Found '{description}' but could not click: {click_result.get('error', 'unknown error')}"
 
     # Brief delay so the field receives keyboard focus before we start typing
     time.sleep(0.3)
 
     # Step 2: Type using the existing type_text wrapper from pc_automation
-    type_text(text)
+    type_result = type_text(text)
+    if isinstance(type_result, dict) and type_result.get("success") is False:
+        return f"Clicked '{description}' but could not type: {type_result.get('error', 'unknown error')}"
     return f"Clicked '{description}' at ({x}, {y}) and typed: {text}"
 
 
@@ -1037,14 +1150,14 @@ def what_is_on_screen() -> str:
     Returns detailed description of screen contents.
     """
     if not _vision_module_available():
-        return "Vision module not available"
+        return _vision_unavailable_message()
 
     # describe_screen() handles the screenshot + model call internally
     return describe_screen()
 
 
 @tool
-def read_text_on_screen(area: str = None) -> str:
+def read_text_on_screen(area: str | None = None) -> str:
     """
     Reads and extracts text currently visible on screen.
     Use when user asks 'read the error message', 'what does it say',
@@ -1056,7 +1169,7 @@ def read_text_on_screen(area: str = None) -> str:
     Returns extracted text from screen.
     """
     if not _vision_module_available():
-        return "Vision module not available"
+        return _vision_unavailable_message()
 
     # Pass area directly; read_screen_text handles None (full screen) gracefully
     return read_screen_text(area)
@@ -1067,9 +1180,11 @@ ALL_TOOLS = [
     set_alarm,
     create_calendar_event,
     get_upcoming_events,
+    delete_calendar_event,
     add_task,
     get_tasks,
     complete_task,
+    delete_google_task,
     # System
     open_app,
     # Research
@@ -1078,6 +1193,7 @@ ALL_TOOLS = [
     send_email,
     read_emails,
     search_emails,
+    mark_email_read,
     # Memory
     save_memory,
     get_user_context,

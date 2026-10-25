@@ -1,0 +1,24 @@
+# Normalize line endings across platforms
+* text=auto eol=lf
+
+# Binary files (no line ending conversion)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.tar binary
+*.7z binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.mp3 binary
+*.mp4 binary
+*.webm binary
+
+# Audio assets (TTS reference audio in src/audio_output/)
+*.wav binary
