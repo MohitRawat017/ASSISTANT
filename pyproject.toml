@@ -1,6 +1,6 @@
 [project]
 name = "assistant"
-version = "0.1.0"
+version = "2.0.0"
 description = "Tsuzi, a local-first Windows desktop assistant with memory, Telegram control, PC automation, and screen vision."
 readme = "README.md"
 requires-python = ">=3.12"
