@@ -34,7 +34,20 @@ def get_app() -> Application | None:
     return _app
 
 
-# Security check 
+# Security check
+
+# Cached ASR handler — loading faster-whisper takes seconds and hundreds of
+# MB of memory, so voice messages must reuse one instance, not reload per message.
+_asr_handler = None
+
+
+def _get_asr():
+    global _asr_handler
+    if _asr_handler is None:
+        from src.audio_input.asr import ASRHandler
+        _asr_handler = ASRHandler()
+    return _asr_handler
+
 
 def is_allowed(update: Update) -> bool:
     return update.effective_user.id == Config.TELEGRAM_ALLOWED_USER_ID
@@ -159,9 +172,8 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         voice_file = await context.bot.get_file(update.message.voice.file_id)
         await voice_file.download_to_drive(ogg_path)
 
-        # Transcribe with Whisper
-        from src.audio_input.asr import ASRHandler
-        asr = ASRHandler()
+        # Transcribe with Whisper (cached handler — model loads once)
+        asr = _get_asr()
         transcribed_text = asr.transcribe_file(ogg_path)
 
         # Handle empty transcription

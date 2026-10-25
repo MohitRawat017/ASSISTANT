@@ -189,10 +189,13 @@ class LongTermMemory:
         try:
             with sqlite3.connect(self.db_path) as conn:
                 conn.row_factory = sqlite3.Row
-                # LIKE with wildcards does substring matching
+                # LIKE with wildcards does substring matching; % and _ in the
+                # query are escaped so they match literally.
+                escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
                 rows = conn.execute(
-                    "SELECT * FROM memories WHERE content LIKE ? ORDER BY created_at DESC LIMIT ?",
-                    (f"%{query}%", limit)
+                    "SELECT * FROM memories WHERE content LIKE ? ESCAPE '\\' "
+                    "ORDER BY created_at DESC LIMIT ?",
+                    (f"%{escaped}%", limit)
                 ).fetchall()
                 return [dict(row) for row in rows]
         except Exception as e:
@@ -285,9 +288,15 @@ class LongTermMemory:
             ratio = SequenceMatcher(None, content_lower, existing).ratio()
             if ratio >= threshold:
                 return m
-            
-            # Also check if one contains the other (for partial updates)
-            if content_lower in existing or existing in content_lower:
+
+            # Also check if one contains the other (for partial updates).
+            # Minimum-length guard: without it, short inputs ("hi") are a
+            # substring of almost anything and would overwrite unrelated
+            # memories.
+            if (
+                (len(content_lower) >= 8 and content_lower in existing)
+                or (len(existing) >= 8 and existing in content_lower)
+            ):
                 return m
         
         return None
