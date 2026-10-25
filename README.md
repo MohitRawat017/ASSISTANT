@@ -400,8 +400,6 @@ before making non-trivial changes.
 | Glossary | [`docs/glossary.md`](docs/glossary.md) |
 | Decision records | [`docs/decisions/`](docs/decisions/) |
 
-Agent guidelines for coding assistants live in [`AGENTS.MD`](AGENTS.MD).
-
 ## Contributing
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md). By participating you agree to

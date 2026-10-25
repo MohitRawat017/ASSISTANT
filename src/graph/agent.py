@@ -1,8 +1,8 @@
 """
 Tsuzi agent core — LangGraph ReAct agent (V2).
 
-LOCAL-FIRST CONTRACT (see AGENTS.MD): the text model runs on Ollama on the
-owner's machine. Cloud vision (NVIDIA) is a separate, optional accelerator
+LOCAL-FIRST CONTRACT: the text model runs on Ollama on the owner's
+machine. Cloud vision (NVIDIA) is a separate, optional accelerator
 used only by src/vision/screen_vision.py.
 
 RESPONSIBILITIES:

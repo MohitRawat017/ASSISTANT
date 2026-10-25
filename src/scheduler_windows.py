@@ -68,7 +68,7 @@ class WindowsScheduler:
                     "/tr", f'"{bat_path}"',     # Program to run (.bat), quoted for spaces in path
                     "/sc", "once",              # Schedule: one time
                     "/st", schedule_time,       # Start time (HH:MM)
-                    "/sd", schedule_date,       # Start date; ponytail: %m/%d/%Y assumes en-US locale format
+                    "/sd", schedule_date,       # Start date; shortcut: %m/%d/%Y assumes en-US locale format
                     "/f",                       # Force: overwrite if exists
                 ],
                 capture_output=True,

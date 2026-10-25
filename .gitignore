@@ -97,3 +97,11 @@ src/managers/weather_manager.py
 src/managers/task_manager.py
 src/managers/calender_manager.py
 src/managers/calendar_manager.py
+
+# Local agent-assistant files (kept local, never published)
+AGENTS.MD
+CLAUDE.MD
+.agents/
+skills/
+docs/context-audit.md
+.zcode/
