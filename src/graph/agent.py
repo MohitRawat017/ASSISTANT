@@ -114,11 +114,18 @@ def _trim_state(state: dict) -> dict:
     return {"messages": trimmed}
 
 
-llm = ChatOllama(
-    model=Config.OLLAMA_MODEL,
-    base_url=Config.OLLAMA_BASE_URL,
-    temperature=0.3,
-)
+_ollama_kwargs = {
+    "model": Config.OLLAMA_MODEL,
+    "base_url": Config.OLLAMA_BASE_URL,
+    "temperature": 0.3,
+    # This is a model-call retry, not a replay of the LangGraph invocation.
+    "max_retries": Config.OLLAMA_MAX_RETRIES,
+}
+if Config.OLLAMA_TIMEOUT is not None:
+    # ChatOllama forwards HTTP options through client kwargs.
+    _ollama_kwargs["client_kwargs"] = {"timeout": Config.OLLAMA_TIMEOUT}
+    _ollama_kwargs["async_client_kwargs"] = {"timeout": Config.OLLAMA_TIMEOUT}
+llm = ChatOllama(**_ollama_kwargs)
 
 _agent = None
 

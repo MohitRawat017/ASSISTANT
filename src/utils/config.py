@@ -1,4 +1,5 @@
 import os
+import math
 from dotenv import load_dotenv
 
 # Load .env file from project root
@@ -41,6 +42,24 @@ class Config:
     # Main assistant runtime — local Ollama (local-first contract)
     OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3.5:4b")
     OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+
+    # Reliability budgets. An unset provider timeout preserves client-library
+    # defaults; setting one bounds the provider call without replaying the
+    # LangGraph invocation. Retry counts apply only to safe reads.
+    _ollama_timeout_raw = os.getenv("OLLAMA_TIMEOUT_SECONDS", os.getenv("OLLAMA_TIMEOUT", "300"))
+    try:
+        parsed_ollama_timeout = float(_ollama_timeout_raw) if _ollama_timeout_raw else None
+        OLLAMA_TIMEOUT = (
+            parsed_ollama_timeout
+            if parsed_ollama_timeout is not None
+            and math.isfinite(parsed_ollama_timeout)
+            and parsed_ollama_timeout > 0
+            else None
+        )
+    except ValueError:
+        OLLAMA_TIMEOUT = None
+    _ollama_retries_raw = os.getenv("OLLAMA_MAX_RETRIES", "0")
+    OLLAMA_MAX_RETRIES = min(3, int(_ollama_retries_raw)) if _ollama_retries_raw.isdigit() else 0
 
     MEMORY_DIR = os.path.join(BASE_DIR, "data", "memory")
 
@@ -122,3 +141,32 @@ class Config:
     VISION_MODEL_HOST = os.getenv("VISION_MODEL_HOST", "http://localhost:11434")
     _vision_num_gpu_raw = os.getenv("VISION_NUM_GPU", "99")
     VISION_NUM_GPU = int(_vision_num_gpu_raw) if _vision_num_gpu_raw.lstrip("-").isdigit() else 0
+    _vision_timeout_raw = os.getenv("VISION_TIMEOUT_SECONDS", os.getenv("VISION_TIMEOUT", "120"))
+    try:
+        parsed_vision_timeout = float(_vision_timeout_raw) if _vision_timeout_raw else None
+        VISION_TIMEOUT = (
+            parsed_vision_timeout
+            if parsed_vision_timeout is not None
+            and math.isfinite(parsed_vision_timeout)
+            and parsed_vision_timeout > 0
+            else None
+        )
+    except ValueError:
+        VISION_TIMEOUT = None
+    _vision_retries_raw = os.getenv("VISION_MAX_RETRIES", "0")
+    VISION_MAX_RETRIES = min(3, int(_vision_retries_raw)) if _vision_retries_raw.isdigit() else 0
+
+    _google_timeout_raw = os.getenv("GOOGLE_TIMEOUT_SECONDS", os.getenv("GOOGLE_TIMEOUT", "30"))
+    try:
+        parsed_google_timeout = float(_google_timeout_raw) if _google_timeout_raw else None
+        GOOGLE_TIMEOUT = (
+            parsed_google_timeout
+            if parsed_google_timeout is not None
+            and math.isfinite(parsed_google_timeout)
+            and parsed_google_timeout > 0
+            else None
+        )
+    except ValueError:
+        GOOGLE_TIMEOUT = None
+    _google_retries_raw = os.getenv("GOOGLE_MAX_RETRIES", "2")
+    GOOGLE_MAX_RETRIES = min(3, int(_google_retries_raw)) if _google_retries_raw.isdigit() else 2

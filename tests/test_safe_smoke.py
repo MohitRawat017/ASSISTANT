@@ -53,6 +53,7 @@ def test_screen_vision_uses_configured_ollama_host(monkeypatch):
     from src.vision.screen_vision import _chat_with_vision_model
 
     monkeypatch.setattr(Config, "VISION_PROVIDER", "ollama")
+    monkeypatch.setattr(Config, "VISION_TIMEOUT", None)
     monkeypatch.setattr(Config, "VISION_MODEL_HOST", "http://example.test:11434")
     monkeypatch.setattr(Config, "VISION_MODEL", "vision-test-model")
 
@@ -82,6 +83,7 @@ def test_screen_vision_auto_falls_back_to_ollama_without_nvidia_key(monkeypatch)
 
     monkeypatch.setattr(Config, "VISION_PROVIDER", "auto")
     monkeypatch.setattr(Config, "NVIDIA_API_KEY", "")
+    monkeypatch.setattr(Config, "VISION_TIMEOUT", None)
     monkeypatch.setattr(Config, "VISION_MODEL_HOST", "http://local.test:11434")
 
     assert _chat_with_vision_model([{"role": "user", "content": "describe"}]) == "ollama ok"
@@ -122,6 +124,7 @@ def test_screen_vision_uses_nvidia_provider(monkeypatch):
     monkeypatch.setattr(Config, "VISION_TEMPERATURE", 0.6)
     monkeypatch.setattr(Config, "VISION_TOP_P", 0.95)
     monkeypatch.setattr(Config, "VISION_MAX_COMPLETION_TOKENS", 16384)
+    monkeypatch.setattr(Config, "VISION_TIMEOUT", None)
 
     result = _chat_with_vision_model(
         [{"role": "user", "content": "describe", "images": ["abc123"]}]

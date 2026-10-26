@@ -191,7 +191,7 @@ def test_expired_token_silently_refreshed_non_interactive(auth_env):
     creds = google_auth.get_credentials(allow_interactive=False)
 
     assert creds.refresh_calls == 1
-    assert isinstance(creds.refresh_requests[0], FakeRequest)
+    assert callable(creds.refresh_requests[0])
     assert creds.token == FAKE_ACCESS_TOKEN + "-refreshed"
     assert creds.expired is False
     assert auth_env.flow_calls == []

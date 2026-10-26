@@ -52,6 +52,20 @@ def _start_oauth_flow() -> Credentials:
     return flow.run_local_server(port=0)
 
 
+def _refresh_request():
+    """Return a refresh callable with the configured HTTP deadline."""
+    request = Request()
+    if Config.GOOGLE_TIMEOUT is None:
+        return request
+
+    class BoundedRequest:
+        def __call__(self, *args, **kwargs):
+            kwargs.setdefault("timeout", Config.GOOGLE_TIMEOUT)
+            return request(*args, **kwargs)
+
+    return BoundedRequest()
+
+
 def _auth_unavailable(reason: str) -> RuntimeError:
     return RuntimeError(
         f"{reason} Run an interactive Google auth flow to regenerate "
@@ -120,7 +134,7 @@ def get_credentials(allow_interactive: bool = True) -> Credentials:
             # Silent refresh: always attempted, interactive or not, so tool
             # calls survive the ~1h access-token expiry.
             try:
-                creds.refresh(Request())
+                creds.refresh(_refresh_request())
             except (RefreshError, TransportError, OSError, ValueError) as e:
                 # Never delete token.json here: the saved refresh token may
                 # still be recoverable (e.g. a transient network error), and
@@ -191,7 +205,7 @@ def get_calendar_service():
     # Non-interactive: an expired token during an agent tool call is refreshed
     # silently; if that fails a typed ReauthRequired error is raised and no
     # blocking browser OAuth flow is ever launched.
-    return build("calendar", "v3", credentials=get_credentials(allow_interactive=False))
+    return _build_service("calendar", "v3")
 
 
 def get_tasks_service():
@@ -206,7 +220,7 @@ def get_tasks_service():
         tasks = service.tasks().list(tasklist='@default').execute()
     """
     # Non-interactive: see get_calendar_service().
-    return build("tasks", "v1", credentials=get_credentials(allow_interactive=False))
+    return _build_service("tasks", "v1")
 
 
 def get_gmail_service():
@@ -221,7 +235,32 @@ def get_gmail_service():
         messages = service.users().messages().list(userId='me').execute()
     """
     # Non-interactive: see get_calendar_service().
-    return build("gmail", "v1", credentials=get_credentials(allow_interactive=False))
+    return _build_service("gmail", "v1")
+
+
+def _build_service(api: str, version: str):
+    """Construct a Google client with discovery caching and HTTP bounds."""
+    credentials = get_credentials(allow_interactive=False)
+    kwargs = {
+        "cache_discovery": False,
+    }
+    if Config.GOOGLE_TIMEOUT is not None:
+        try:
+            import httplib2
+            from google_auth_httplib2 import AuthorizedHttp
+
+            # googleapiclient rejects passing both ``http`` and
+            # ``credentials``. Authorize the bounded transport explicitly.
+            kwargs["http"] = AuthorizedHttp(
+                credentials, http=httplib2.Http(timeout=Config.GOOGLE_TIMEOUT)
+            )
+        except ImportError as exc:
+            raise RuntimeError(
+                "GOOGLE_TIMEOUT_SECONDS requires the google-auth-httplib2 dependency."
+            ) from exc
+    else:
+        kwargs["credentials"] = credentials
+    return build(api, version, **kwargs)
 
 
 if __name__ == "__main__":

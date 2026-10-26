@@ -6,6 +6,13 @@ import base64
 from email.mime.text import MIMEText
 
 from src.tools.google.auth import get_gmail_service
+from src.utils.config import Config
+from src.utils.reliability import (
+    execute_google_read,
+    execute_google_write,
+    failure_result,
+    stable_operation_id,
+)
 
 
 def send_gmail(to: str, subject: str, body: str) -> dict:
@@ -28,6 +35,7 @@ def send_gmail(to: str, subject: str, body: str) -> dict:
         {"success": True, "message_id": "..."} on success
         {"success": False, "error": "..."} on failure
     """
+    operation_id = stable_operation_id("gmail", "send")
     try:
         service = get_gmail_service()
         
@@ -40,16 +48,16 @@ def send_gmail(to: str, subject: str, body: str) -> dict:
         encoded = base64.urlsafe_b64encode(message.as_bytes()).decode()
         
         # Send the message
-        sent = (
-            service.users()
-            .messages()
-            .send(userId="me", body={"raw": encoded})
-            .execute()
+        result = execute_google_write(
+            lambda: service.users().messages().send(userId="me", body={"raw": encoded}),
+            provider="gmail",
+            operation_id=operation_id,
         )
-        
-        return {"success": True, "message_id": sent.get("id", "")}
+        if result.ok:
+            result["message_id"] = result.pop("value", {}).get("id", "")
+        return result
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return failure_result(e, provider="gmail", operation_id=operation_id)
 
 
 def read_unread_emails(max_results: int = 5) -> dict:
@@ -81,34 +89,36 @@ def read_unread_emails(max_results: int = 5) -> dict:
         service = get_gmail_service()
         
         # Get list of unread inbox messages
-        result = (
-            service.users()
-            .messages()
-            .list(
+        result = execute_google_read(
+            lambda: service.users().messages().list(
                 userId="me",
                 labelIds=["UNREAD", "INBOX"],
                 maxResults=max_results
-            )
-            .execute()
+            ),
+            operation_id=stable_operation_id("gmail", "list-unread", str(max_results)),
+            max_retries=Config.GOOGLE_MAX_RETRIES,
         )
-        
-        messages = result.get("messages", [])
+        if not result.ok:
+            return result
+        messages = result.pop("value", {}).get("messages", [])
         emails = []
         
         # Fetch details for each message
         for msg in messages:
             # Get message metadata (headers only, not full body)
-            detail = (
-                service.users()
-                .messages()
-                .get(
+            detail_result = execute_google_read(
+                lambda: service.users().messages().get(
                     userId="me",
                     id=msg["id"],
                     format="metadata",
                     metadataHeaders=["From", "Subject", "Date"]
-                )
-                .execute()
+                ),
+                operation_id=stable_operation_id("gmail", "message", msg["id"]),
+                max_retries=Config.GOOGLE_MAX_RETRIES,
             )
+            if not detail_result.ok:
+                return detail_result
+            detail = detail_result.pop("value", {})
             
             # Extract headers into dict
             headers = {
@@ -125,11 +135,10 @@ def read_unread_emails(max_results: int = 5) -> dict:
                     "date": headers.get("Date", ""),
                 }
             )
-        return {"success": True, "emails": emails}
+        result["emails"] = emails
+        return result
     except Exception as e:
-        # HttpError.reason is the short API message; str(e) dumps the whole blob
-        reason = getattr(e, "reason", None) or str(e)
-        return {"success": False, "error": str(reason)[:200]}
+        return failure_result(e, provider="gmail", operation_id=stable_operation_id("gmail", "list-unread"))
 
 
 def mark_as_read(message_id: str) -> dict:
@@ -143,16 +152,18 @@ def mark_as_read(message_id: str) -> dict:
         {"success": True} on success
         {"success": False, "error": "..."} on failure
     """
+    operation_id = stable_operation_id("gmail", "mark-read")
     try:
         service = get_gmail_service()
-        service.users().messages().modify(
-            userId="me",
-            id=message_id,
-            body={"removeLabelIds": ["UNREAD"]},
-        ).execute()
-        return {"success": True}
+        return execute_google_write(
+            lambda: service.users().messages().modify(
+                userId="me", id=message_id, body={"removeLabelIds": ["UNREAD"]}
+            ),
+            provider="gmail",
+            operation_id=operation_id,
+        )
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return failure_result(e, provider="gmail", operation_id=operation_id)
 
 
 def search_emails(query: str, max_results: int = 5) -> dict:
@@ -180,29 +191,31 @@ def search_emails(query: str, max_results: int = 5) -> dict:
         service = get_gmail_service()
         
         # Search for messages
-        result = (
-            service.users()
-            .messages()
-            .list(userId="me", q=query, maxResults=max_results)
-            .execute()
+        result = execute_google_read(
+            lambda: service.users().messages().list(userId="me", q=query, maxResults=max_results),
+            operation_id=stable_operation_id("gmail", "search", f"{query}|{max_results}"),
+            max_retries=Config.GOOGLE_MAX_RETRIES,
         )
-        
-        messages = result.get("messages", [])
+        if not result.ok:
+            return result
+        messages = result.pop("value", {}).get("messages", [])
         emails = []
         
         # Fetch details for each message
         for msg in messages:
-            detail = (
-                service.users()
-                .messages()
-                .get(
+            detail_result = execute_google_read(
+                lambda: service.users().messages().get(
                     userId="me",
                     id=msg["id"],
                     format="metadata",
                     metadataHeaders=["From", "Subject"]
-                )
-                .execute()
+                ),
+                operation_id=stable_operation_id("gmail", "message", msg["id"]),
+                max_retries=Config.GOOGLE_MAX_RETRIES,
             )
+            if not detail_result.ok:
+                return detail_result
+            detail = detail_result.pop("value", {})
             
             headers = {
                 h["name"]: h["value"]
@@ -217,9 +230,7 @@ def search_emails(query: str, max_results: int = 5) -> dict:
                     "snippet": detail.get("snippet", ""),
                 }
             )
-        return {"success": True, "emails": emails}
+        result["emails"] = emails
+        return result
     except Exception as e:
-        # HttpError.reason is the short API message; str(e) dumps the whole blob
-        reason = getattr(e, "reason", None) or str(e)
-        return {"success": False, "error": str(reason)[:200]}
-
+        return failure_result(e, provider="gmail", operation_id=stable_operation_id("gmail", "search"))
