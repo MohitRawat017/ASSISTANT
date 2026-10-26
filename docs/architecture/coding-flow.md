@@ -43,7 +43,8 @@ merged, see [../standards/git.md](../standards/git.md).
 Where these are enforced, without repeating their rules:
 
 - Configuration: `.env` is loaded and normalized once in `src/utils/config.py`; modules read `Config`, never raw env vars.
-- Observability: `DEBUG_MODE=true` enables the concise console trace and the JSONL logs.
+- Observability: JSONL traces are always written through the redaction/retention
+  boundary; `DEBUG_MODE=true` additionally enables the concise console trace.
 - Auth boundary: the Telegram allowlist; Google credentials live in gitignored token/credential files.
 
 ## Related Documents

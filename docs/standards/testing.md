@@ -22,7 +22,7 @@ that way. Separation happens via pytest markers, not folder structure:
 - No coverage threshold is configured yet; the safe smoke gate is the merge requirement
 - New code must not break the safe smoke suite
 - Every bug fix includes a regression test when it can be made deterministic
-- New wrapped tools get at least a registration/import check in the safe smoke suite when feasible
+- New wrapped tools get at least a registration/import check in the safe smoke suite when feasible (`tests/test_registry_smoke.py` builds the real `ALL_TOOLS` registry)
 
 ## What Must Be Tested
 

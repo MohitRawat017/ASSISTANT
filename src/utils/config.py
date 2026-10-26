@@ -48,9 +48,37 @@ class Config:
     GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "")
     REMINDER_EMAIL = os.getenv("REMINDER_EMAIL", "")  # Defaults to GMAIL_ADDRESS if empty
 
-    _debug_raw = os.getenv("DEBUG_MODE", "true").strip().lower()
+    # Debug console trace is OFF by default (ADR 0001): JSONL traces stay on
+    # (redacted + bounded) for explainability; set DEBUG_MODE=true to opt in
+    # to the verbose stdout trace.
+    _debug_raw = os.getenv("DEBUG_MODE", "false").strip().lower()
     DEBUG_MODE = _debug_raw in ("1", "true", "yes", "on")
     DEBUG_LOG_DIR = os.path.join(BASE_DIR, "logs", "agent_traces")
+
+    # Days to keep logs/agent_traces/agent_trace_*.jsonl files; older trace
+    # files are pruned after each write (bounded retention, ADR 0001).
+    _trace_retention_raw = os.getenv("TRACE_RETENTION_DAYS", "14")
+    TRACE_RETENTION_DAYS = max(
+        0, int(_trace_retention_raw)
+    ) if _trace_retention_raw.isdigit() else 14
+
+    # Keep the active day's trace bounded as well as age-limited. Rotated
+    # files use the same date prefix and are included in age pruning.
+    _trace_max_bytes_raw = os.getenv("TRACE_MAX_BYTES", "5000000")
+    TRACE_MAX_BYTES = max(
+        1, int(_trace_max_bytes_raw)
+    ) if _trace_max_bytes_raw.isdigit() else 5_000_000
+    _trace_backup_raw = os.getenv("TRACE_BACKUP_COUNT", "3")
+    TRACE_BACKUP_COUNT = max(
+        0, int(_trace_backup_raw)
+    ) if _trace_backup_raw.isdigit() else 3
+
+    # Maximum number of *.png files kept in data/screenshots; the oldest are
+    # deleted after each new screenshot so the folder stays bounded.
+    _screenshot_max_raw = os.getenv("SCREENSHOT_MAX_FILES", "50")
+    SCREENSHOT_MAX_FILES = max(
+        1, int(_screenshot_max_raw)
+    ) if _screenshot_max_raw.isdigit() else 50
 
     TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
     

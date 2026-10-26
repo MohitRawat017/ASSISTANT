@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Debug console tracing (`DEBUG_MODE`) now defaults to **off**; set
+  `DEBUG_MODE=true` in `.env` to restore the verbose stdout trace. JSONL
+  agent traces stay on for explainability (per the product vision) but are
+  redacted at the write choke point — sensitive fields, Bearer tokens and
+  `sk-`-style keys become `[REDACTED]`, long values are truncated with an
+  explicit marker — and trace files older than `TRACE_RETENTION_DAYS`
+  (default 14) are pruned after each write; the active daily file also rotates
+  at `TRACE_MAX_BYTES` (default 5 MB) with `TRACE_BACKUP_COUNT` backups (ADR
+  0001).
+
+### Fixed
+
+- Removed imports of nonexistent manager modules so the alarm manager and tool
+  registry can load; added deterministic registry, OAuth, and privacy checks to
+  the CI workflow.
+- Google access tokens with a refresh token now refresh silently; explicit
+  browser recovery is available with `python -m src.tools.google.auth`.
+- `data/screenshots/` grew without bound: only the newest
+  `SCREENSHOT_MAX_FILES` (default 50) screenshots are kept; the rest are
+  deleted after each new capture.
+- `logs/reminders.log` and `logs/reminder_failures.log` grew without bound:
+  both now use rotating handlers (1 MB per file, 2 backups kept).
+
 ## [2.0.0] - 2026-10-25
 
 The Version 2 wrap: all phases through Phase 5 plus the stabilization pass,

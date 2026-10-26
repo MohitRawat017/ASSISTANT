@@ -23,6 +23,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 # ── Alarm Manager Tests ───────────────────────────────────────────────────
 
+@pytest.mark.safe_smoke
 class TestAlarmManager:
     """Tests for AlarmManager."""
     

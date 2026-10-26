@@ -40,6 +40,7 @@ because it runs as a standalone script, not as part of the package.
 
 import argparse
 import logging
+from logging.handlers import RotatingFileHandler
 import sqlite3
 import subprocess
 import os
@@ -57,16 +58,42 @@ from datetime import datetime
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(os.path.dirname(SCRIPT_DIR))
 
+try:
+    if PROJECT_ROOT not in sys.path:
+        sys.path.insert(0, PROJECT_ROOT)
+    from src.utils.redaction import redact_string
+except Exception:  # pragma: no cover - standalone fallback
+    def redact_string(value: str, max_len: int) -> str:
+        return str(value)[:max_len]
+
 LOG_DIR = os.path.join(PROJECT_ROOT, "logs")
 FAILURE_LOG_PATH = os.path.join(LOG_DIR, "reminder_failures.log")
+
+# Both reminder log files are bounded (ADR 0001): rotate at ~1 MB, keep 2
+# backups, so a chatty reminder run can never fill the disk.
+LOG_MAX_BYTES = 1_000_000
+LOG_BACKUP_COUNT = 2
 
 # stdout goes nowhere under Task Scheduler, so everything is also appended
 # to logs/reminders.log by _setup_logging() below.
 logger = logging.getLogger("send_reminder")
 
+# Failure entries go ONLY to logs/reminder_failures.log (propagate off, so
+# they do not duplicate into reminders.log) via a rotating handler that is
+# attached lazily on first use.
+_failure_logger = logging.getLogger("send_reminder.failures")
+_failure_logger.propagate = False
+_failure_logger.setLevel(logging.INFO)
+
+
+def _safe_log_text(value, max_len: int = 1000) -> str:
+    """Keep reminder logs single-line, bounded, and pattern-redacted."""
+    text = str(value).replace("\r", " ").replace("\n", " ").replace("\t", " ")
+    return redact_string(text, max_len)
+
 
 def _setup_logging():
-    """Attach file + stream handlers so headless runs still leave a trace."""
+    """Attach rotating file + stream handlers so headless runs still leave a bounded trace."""
     if logger.handlers:
         return
     logger.setLevel(logging.INFO)
@@ -75,8 +102,11 @@ def _setup_logging():
     )
     try:
         os.makedirs(LOG_DIR, exist_ok=True)
-        file_handler = logging.FileHandler(
-            os.path.join(LOG_DIR, "reminders.log"), encoding="utf-8"
+        file_handler = RotatingFileHandler(
+            os.path.join(LOG_DIR, "reminders.log"),
+            maxBytes=LOG_MAX_BYTES,
+            backupCount=LOG_BACKUP_COUNT,
+            encoding="utf-8",
         )
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
@@ -87,16 +117,37 @@ def _setup_logging():
     logger.addHandler(stream_handler)
 
 
+def _get_failure_logger() -> logging.Logger:
+    """Lazily attach the rotating handler for logs/reminder_failures.log."""
+    if not _failure_logger.handlers:
+        handler = RotatingFileHandler(
+            FAILURE_LOG_PATH,
+            maxBytes=LOG_MAX_BYTES,
+            backupCount=LOG_BACKUP_COUNT,
+            encoding="utf-8",
+        )
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        _failure_logger.addHandler(handler)
+    return _failure_logger
+
+
 def _log_failure(alarm_id: str, label: str, error: str):
     """Append one line to logs/reminder_failures.log so nothing is silently lost."""
     try:
         os.makedirs(LOG_DIR, exist_ok=True)
-        safe_label = str(label).replace("\n", " ").replace("\t", " ")
+        safe_alarm_id = _safe_log_text(alarm_id, 200)
+        safe_label = _safe_log_text(label, 500)
+        safe_error = _safe_log_text(error, 1000)
         timestamp = datetime.now().isoformat(timespec="seconds")
-        with open(FAILURE_LOG_PATH, "a", encoding="utf-8") as f:
-            f.write(f"{timestamp}\talarm_id={alarm_id}\tlabel={safe_label}\terror={error}\n")
+        _get_failure_logger().error(
+            "%s\talarm_id=%s\tlabel=%s\terror=%s",
+            timestamp,
+            safe_alarm_id,
+            safe_label,
+            safe_error,
+        )
     except OSError:
-        logger.error("Could not write failure log entry for alarm %s", alarm_id)
+        logger.error("Could not write failure log entry for alarm %s", _safe_log_text(alarm_id, 200))
 
 
 def _load_config():
@@ -156,7 +207,7 @@ def main():
     
     db_path = os.path.join(PROJECT_ROOT, "data", "alarms.db")
     if not os.path.exists(db_path):
-        logger.error("Database not found: %s", db_path)
+        logger.error("Database not found: %s", _safe_log_text(db_path))
         _log_failure(args.alarm_id, "unknown", f"database not found: {db_path}")
         sys.exit(1)
 
@@ -168,14 +219,14 @@ def main():
             "SELECT * FROM alarms WHERE id = ?", (args.alarm_id,)
         ).fetchone()
     except sqlite3.Error as e:
-        logger.error("Failed to read alarm %s from database: %s", args.alarm_id, e)
+        logger.error("Failed to read alarm %s from database: %s", _safe_log_text(args.alarm_id, 200), _safe_log_text(e))
         _log_failure(args.alarm_id, "unknown", f"database read failed: {e}")
         if conn is not None:
             conn.close()
         sys.exit(1)
 
     if not row:
-        logger.error("Alarm %s not found", args.alarm_id)
+        logger.error("Alarm %s not found", _safe_log_text(args.alarm_id, 200))
         conn.close()
         sys.exit(1)
 
@@ -183,7 +234,7 @@ def main():
 
     # Check if already notified (prevent double notification)
     if alarm.get("notified"):
-        logger.info("Alarm %s already notified, skipping", args.alarm_id)
+        logger.info("Alarm %s already notified, skipping", _safe_log_text(args.alarm_id, 200))
         conn.close()
         sys.exit(0)
 
@@ -224,10 +275,10 @@ def main():
 
         if email_svc.send_reminder(subject, body):
             delivered = True
-            logger.info("Email sent for alarm %s", args.alarm_id)
+            logger.info("Email sent for alarm %s", _safe_log_text(args.alarm_id, 200))
         else:
             delivery_errors.append("email send failed")
-            logger.error("Failed to send email for alarm %s", args.alarm_id)
+            logger.error("Failed to send email for alarm %s", _safe_log_text(args.alarm_id, 200))
     else:
         delivery_errors.append("email not configured")
         logger.warning("Gmail credentials not configured, skipping email")
@@ -263,10 +314,10 @@ def main():
 
             asyncio.run(_send_telegram_message())
             delivered = True
-            logger.info("Telegram message sent for alarm %s", args.alarm_id)
+            logger.info("Telegram message sent for alarm %s", _safe_log_text(args.alarm_id, 200))
         except Exception as e:
             delivery_errors.append(f"telegram send failed: {e}")
-            logger.error("Telegram send failed for alarm %s: %s", args.alarm_id, e)
+            logger.error("Telegram send failed for alarm %s: %s", _safe_log_text(args.alarm_id, 200), _safe_log_text(e))
     else:
         delivery_errors.append("telegram not configured")
         logger.warning("Telegram credentials not configured, skipping Telegram")
@@ -292,7 +343,11 @@ def main():
                     "Alarm %s already marked notified by another run", args.alarm_id
                 )
         except sqlite3.Error as e:
-            logger.error("Failed to mark alarm %s notified: %s", args.alarm_id, e)
+            logger.error(
+                "Failed to mark alarm %s notified: %s",
+                _safe_log_text(args.alarm_id, 200),
+                _safe_log_text(e),
+            )
             _log_failure(args.alarm_id, label, f"delivered but mark-notified failed: {e}")
     else:
         error_summary = "; ".join(delivery_errors)
@@ -318,9 +373,9 @@ def main():
                 text=True,
                 timeout=15,
             )
-            logger.info("Cleaned up scheduled task '%s'", task_name)
+            logger.info("Cleaned up scheduled task '%s'", _safe_log_text(task_name, 300))
         except Exception as e:
-            logger.error("Failed to clean up task: %s", e)
+            logger.error("Failed to clean up task: %s", _safe_log_text(e))
 
     # ==========================================================================
     # STEP 5: Clean up .bat wrapper file
@@ -333,7 +388,7 @@ def main():
         try:
             if os.path.exists(bat_path):
                 os.remove(bat_path)
-                logger.info("Cleaned up batch file '%s'", bat_path)
+                logger.info("Cleaned up batch file '%s'", _safe_log_text(bat_path, 300))
         except OSError:
             pass  # File might be locked, ignore
 

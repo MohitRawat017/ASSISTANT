@@ -101,6 +101,8 @@ src/managers/calendar_manager.py
 # Local agent-assistant files (kept local, never published)
 AGENTS.MD
 CLAUDE.MD
+handover.md
+opencode.jsonc
 .agents/
 skills/
 docs/context-audit.md
