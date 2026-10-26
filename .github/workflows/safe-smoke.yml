@@ -26,10 +26,10 @@ jobs:
           python -m pip install pytest python-dotenv langchain-core langgraph langchain-ollama google-auth google-auth-oauthlib google-api-python-client google-auth-httplib2
 
       - name: Collect safe smoke tests
-        run: python -m pytest tests/test_safe_smoke.py tests/test_managers.py tests/test_registry_smoke.py tests/test_google_auth.py tests/test_redaction.py tests/test_reliability_r2.py --collect-only -q --no-test-report
+        run: python -m pytest tests/test_safe_smoke.py tests/test_managers.py tests/test_registry_smoke.py tests/test_google_auth.py tests/test_redaction.py tests/test_reliability_r2.py tests/test_alarm_lifecycle_r3.py --collect-only -q --no-test-report
 
       - name: Run safe smoke tests
-        run: python -m pytest -q tests/test_safe_smoke.py tests/test_managers.py tests/test_registry_smoke.py tests/test_reliability_r2.py -m safe_smoke --no-test-report
+        run: python -m pytest -q tests/test_safe_smoke.py tests/test_managers.py tests/test_registry_smoke.py tests/test_reliability_r2.py tests/test_alarm_lifecycle_r3.py -m safe_smoke --no-test-report
 
       - name: Run deterministic Wave 1 regression tests
         run: python -m pytest -q tests/test_google_auth.py tests/test_redaction.py --no-test-report
