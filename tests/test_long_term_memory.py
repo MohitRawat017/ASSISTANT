@@ -15,13 +15,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.memory import LongTermMemory
 
 
-def test_memory():
+def test_memory(tmp_path):
     print("=" * 50)
     print("Testing Long-Term Memory")
     print("=" * 50)
     
     # Initialize
-    m = LongTermMemory()
+    m = LongTermMemory(str(tmp_path / "memory.db"))
     print(f"\n1. DB Path: {m.db_path}")
     print(f"   DB exists: {os.path.exists(m.db_path)}")
     
