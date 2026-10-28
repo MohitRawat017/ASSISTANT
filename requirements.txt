@@ -7,7 +7,7 @@
 python-dotenv>=1.0.0
 numpy>=1.24.0
 sounddevice>=0.4.6
-rich>=13.7.0
+rich>=15.0.0
 
 # App launching (fallback resolver in app_launcher)
 AppOpener>=1.7
