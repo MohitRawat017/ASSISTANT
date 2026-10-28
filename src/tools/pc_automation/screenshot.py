@@ -30,7 +30,7 @@ def enforce_screenshot_retention() -> None:
 def _validated_filename(filename: str) -> str:
     """Return a safe PNG basename confined to the screenshot directory."""
     if filename is None:
-        return f"screenshot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+        return f"screenshot_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.png"
     filename = os.fspath(filename)
     if (
         not filename
@@ -59,7 +59,7 @@ def take_region_screenshot(x: int, y: int, width: int, height: int) -> str:
     Captures a specific screen region.
     Returns: absolute file path to saved screenshot
     """
-    filename = f"region_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+    filename = f"region_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.png"
     path = os.path.join(SCREENSHOT_DIR, filename)
     screenshot = pyautogui.screenshot(region=(x, y, width, height))
     screenshot.save(path)
