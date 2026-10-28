@@ -63,6 +63,47 @@ class Config:
 
     MEMORY_DIR = os.path.join(BASE_DIR, "data", "memory")
 
+    _checkpoint_path_raw = os.getenv("CHECKPOINT_DB_PATH", os.path.join("data", "checkpoints.db"))
+    CHECKPOINT_DB_PATH = (
+        _checkpoint_path_raw
+        if os.path.isabs(_checkpoint_path_raw)
+        else os.path.join(BASE_DIR, _checkpoint_path_raw)
+    )
+    CHECKPOINT_RETENTION = os.getenv("CHECKPOINT_RETENTION", "keep_latest").strip().lower()
+    if CHECKPOINT_RETENTION not in {"keep_latest", "none"}:
+        CHECKPOINT_RETENTION = "keep_latest"
+    _checkpoint_busy_raw = os.getenv("CHECKPOINT_BUSY_TIMEOUT_MS", "10000")
+    CHECKPOINT_BUSY_TIMEOUT_MS = (
+        max(1, int(_checkpoint_busy_raw))
+        if _checkpoint_busy_raw.isdigit()
+        else 10_000
+    )
+
+    _memory_context_raw = os.getenv("MEMORY_CONTEXT_MAX_CHARS", "6000")
+    MEMORY_CONTEXT_MAX_CHARS = (
+        max(256, int(_memory_context_raw))
+        if _memory_context_raw.isdigit()
+        else 6000
+    )
+    _memory_item_raw = os.getenv("MEMORY_ITEM_MAX_CHARS", "500")
+    MEMORY_ITEM_MAX_CHARS = (
+        max(64, int(_memory_item_raw))
+        if _memory_item_raw.isdigit()
+        else 500
+    )
+    _memory_category_raw = os.getenv("MEMORY_MAX_ITEMS_PER_CATEGORY", "10")
+    MEMORY_MAX_ITEMS_PER_CATEGORY = (
+        max(1, int(_memory_category_raw))
+        if _memory_category_raw.isdigit()
+        else 10
+    )
+    _memory_busy_raw = os.getenv("MEMORY_BUSY_TIMEOUT_MS", "10000")
+    MEMORY_BUSY_TIMEOUT_MS = (
+        max(1, int(_memory_busy_raw))
+        if _memory_busy_raw.isdigit()
+        else 10_000
+    )
+
     GMAIL_ADDRESS = os.getenv("GMAIL_ADDRESS", "")
     GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "")
     REMINDER_EMAIL = os.getenv("REMINDER_EMAIL", "")  # Defaults to GMAIL_ADDRESS if empty

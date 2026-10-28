@@ -165,7 +165,7 @@ async def main():
     try:
         from src.graph.agent import initialize_agent
         await initialize_agent()
-        console.print("[bold green]Agent initialized with MemorySaver.[/bold green]")
+        console.print("[bold green]Agent initialized with SQLite checkpoints.[/bold green]")
     except Exception as e:
         console.print(f"[bold red]Failed to initialize agent: {e}[/bold red]")
         return  # Can't continue without agent

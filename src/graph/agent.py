@@ -6,7 +6,7 @@ machine. Cloud vision (NVIDIA) is a separate, optional accelerator
 used only by src/vision/screen_vision.py.
 
 RESPONSIBILITIES:
-- Build and cache the ReAct agent (ChatOllama + wrapped tools + MemorySaver)
+- Build and cache the ReAct agent (ChatOllama + wrapped tools + SQLite checkpoints)
 - Refresh long-term memory into the system prompt on every query
 - Keep short-term history per thread_id (terminal, each Telegram chat, digest)
 - Print the concise debug trace and append JSONL records to
@@ -14,16 +14,18 @@ RESPONSIBILITIES:
 """
 
 import json
+import asyncio
 import logging
 import os
 import re
+import threading
 import time
+import uuid
 from datetime import datetime, timedelta
 
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import trim_messages
 from langchain_ollama import ChatOllama
-from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 
 from src.tools.wrapped_tools import ALL_TOOLS
@@ -36,13 +38,18 @@ from src.utils.redaction import (
     redact_string,
     redact_value,
 )
+from src.graph.checkpoint import build_checkpoint_saver
 
 logger = logging.getLogger(__name__)
+_trace_lock = threading.RLock()
 
 MEMORY_DIR = Config.MEMORY_DIR
 os.makedirs(MEMORY_DIR, exist_ok=True)
 
-checkpointer = MemorySaver()
+checkpointer = build_checkpoint_saver(
+    Config.CHECKPOINT_DB_PATH,
+    busy_timeout_ms=Config.CHECKPOINT_BUSY_TIMEOUT_MS,
+)
 
 BASE_SYSTEM_PROMPT = """Your name is Tsuzi. You are a warm, cheerful AI assistant.
 Address the user as "master".
@@ -75,9 +82,7 @@ def _build_system_prompt_with_memory() -> str:
     """
     prompt = BASE_SYSTEM_PROMPT
     try:
-        from src.memory import LongTermMemory
-
-        context = LongTermMemory().get_context_string()
+        context = _get_memory_store().get_context_string()
         if context:
             prompt += "\n" + context
     except Exception as e:
@@ -128,6 +133,16 @@ if Config.OLLAMA_TIMEOUT is not None:
 llm = ChatOllama(**_ollama_kwargs)
 
 _agent = None
+_memory_store = None
+
+
+def _get_memory_store():
+    global _memory_store
+    if _memory_store is None:
+        from src.memory import LongTermMemory
+
+        _memory_store = LongTermMemory()
+    return _memory_store
 
 
 def _get_agent():
@@ -148,7 +163,7 @@ async def initialize_agent():
     _prune_old_traces()
     _get_agent()
     logger.info(
-        "Agent initialized with MemorySaver (model=%s at %s)",
+        "Agent initialized with SQLite checkpoints (model=%s at %s)",
         Config.OLLAMA_MODEL,
         Config.OLLAMA_BASE_URL,
     )
@@ -219,9 +234,10 @@ def _write_trace_record(record: dict):
             Config.DEBUG_LOG_DIR, f"agent_trace_{datetime.now().strftime('%Y%m%d')}.jsonl"
         )
         line = json.dumps(record, ensure_ascii=False, default=str) + "\n"
-        _rotate_trace_if_needed(path, len(line.encode("utf-8")))
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(line)
+        with _trace_lock:
+            _rotate_trace_if_needed(path, len(line.encode("utf-8")))
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(line)
     except OSError as e:
         logger.warning("Could not write agent trace: %s", e)
     _prune_old_traces()
@@ -296,6 +312,29 @@ def _run_config(thread_id: str, source: str) -> dict:
     }
 
 
+def clear_thread(thread_id: str) -> bool:
+    """Delete one durable conversation thread without touching other threads."""
+    if not thread_id:
+        return False
+    try:
+        checkpointer.delete_thread(thread_id)
+        return True
+    except Exception as exc:
+        logger.error("Could not clear conversation thread %s: %s", thread_id, exc)
+        return False
+
+
+def _retain_thread(thread_id: str) -> None:
+    if Config.CHECKPOINT_RETENTION != "keep_latest":
+        return
+    try:
+        checkpointer.prune([thread_id], strategy="keep_latest")
+    except Exception as exc:
+        # Retention is housekeeping. A successful checkpoint must remain usable
+        # even if pruning is temporarily blocked by another local process.
+        logger.warning("Could not prune checkpoints for %s: %s", thread_id, exc)
+
+
 def _summarize(user_input: str, thread_id: str, source: str, result, t_start: float, error=None) -> str:
     messages = result.get("messages", []) if isinstance(result, dict) else []
     calls, tool_results = _extract_tool_events(messages)
@@ -324,13 +363,14 @@ def _summarize(user_input: str, thread_id: str, source: str, result, t_start: fl
 
 def run_agent(user_input: str, thread_id: str = "", source: str = "unknown") -> str:
     if not thread_id:
-        thread_id = f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        thread_id = f"session_{uuid.uuid4().hex}"
     t_start = time.perf_counter()
     try:
         result = _get_agent().invoke(
             {"messages": [{"role": "user", "content": user_input}]},
             _run_config(thread_id, source),
         )
+        _retain_thread(thread_id)
         return _summarize(user_input, thread_id, source, result, t_start)
     except Exception as e:
         logger.error("Agent error: %s", e)
@@ -340,13 +380,14 @@ def run_agent(user_input: str, thread_id: str = "", source: str = "unknown") -> 
 
 async def arun_agent(user_input: str, thread_id: str = "", source: str = "unknown") -> str:
     if not thread_id:
-        thread_id = f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        thread_id = f"session_{uuid.uuid4().hex}"
     t_start = time.perf_counter()
     try:
         result = await _get_agent().ainvoke(
             {"messages": [{"role": "user", "content": user_input}]},
             _run_config(thread_id, source),
         )
+        await asyncio.to_thread(_retain_thread, thread_id)
         return _summarize(user_input, thread_id, source, result, t_start)
     except Exception as e:
         logger.error("Async agent error: %s", e)
