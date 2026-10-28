@@ -57,9 +57,13 @@ _OTHER_KEY_RE = re.compile(
 # key=value / "key": "value" assignments whose key names a secret — the
 # value is dropped, the key text is kept so the record stays explainable.
 _SECRET_KV_RE = re.compile(
-    r"(?i)(\"?[A-Za-z0-9_-]*(?:password|passwd|secret|passphrase"
+    r"(?i)(['\"]?[A-Za-z0-9_-]*(?:password|passwd|secret|passphrase"
     r"|token|api[_-]?key|apikey|authorization|credentials?|private[_-]?key|cookie)"
-    r"[A-Za-z0-9_-]*\"?)"
+    r"[A-Za-z0-9_-]*['\"]?)"
+    r"(\s*[=:]\s*)(?:\"[^\"]*\"|'[^']*'|[^\s,;&)\]}]+)"
+)
+_PERSONAL_KV_RE = re.compile(
+    r"(?i)(['\"]?(?:to|cc|bcc|body|email_body|recipient|phone)['\"]?)"
     r"(\s*[=:]\s*)(?:\"[^\"]*\"|'[^']*'|[^\s,;&)\]}]+)"
 )
 
@@ -80,6 +84,7 @@ def redact_string(value: str, max_len: int) -> str:
     text = _SK_KEY_RE.sub(REDACTED, text)
     text = _OTHER_KEY_RE.sub(REDACTED, text)
     text = _SECRET_KV_RE.sub(r"\1\2" + REDACTED, text)
+    text = _PERSONAL_KV_RE.sub(r"\1\2" + REDACTED, text)
     if len(text) > max_len:
         dropped = len(text) - max_len
         return f"{text[:max_len]}…[truncated {dropped} chars]"

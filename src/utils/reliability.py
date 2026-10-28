@@ -52,6 +52,10 @@ def _error_text(exc: BaseException) -> str:
     return text[:MAX_PROVIDER_ERROR]
 
 
+def _sanitize_error(value: Any) -> str:
+    return _error_text(RuntimeError(str(value)))
+
+
 def _status(exc: BaseException) -> int | None:
     response = getattr(exc, "resp", None)
     value = getattr(response, "status", None)
@@ -141,7 +145,7 @@ class ToolResult(dict):
             attempts=int(attempts),
             # Compatibility for all existing wrapped tools.
             success=bool(ok),
-            error=error if error is not None else (None if ok else hint),
+            error=None if error is None and ok else _sanitize_error(error if error is not None else hint),
             **fields,
         )
 

@@ -71,6 +71,13 @@ class TestRedactString:
         assert "[REDACTED]" in out
         assert "password" in out  # key text kept so the record stays explainable
 
+    def test_serialized_personal_fields_are_scrubbed(self):
+        from src.utils.redaction import redact_string
+
+        redacted = redact_string("{'body': 'private text', 'to': 'person@example.com'}", 1000)
+        assert "private text" not in redacted
+        assert "person@example.com" not in redacted
+
     def test_normal_text_not_mangled(self):
         from src.utils.redaction import redact_string
 

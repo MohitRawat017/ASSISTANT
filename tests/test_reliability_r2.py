@@ -99,6 +99,9 @@ def test_result_envelope_invariants_and_legacy_fields():
     with pytest.raises(ValueError):
         ToolResult(False, code="unknown_outcome", unknown_outcome=True, retryable=True)
 
+    sanitized = ToolResult(False, code="provider_error", error="token=secret-value", provider="test", operation_id="op-2")
+    assert "secret-value" not in sanitized.error
+
 
 @pytest.mark.safe_smoke
 def test_retry_limit_backoff_and_one_operation_id():
