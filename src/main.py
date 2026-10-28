@@ -147,6 +147,17 @@ async def main():
     - The same stop_event (for coordinated shutdown)
     """
 
+    # Reconcile durable alarm bookkeeping before interfaces start.  This is
+    # deliberately no-send and non-fatal: a broken scheduler/database should
+    # not prevent terminal startup.
+    try:
+        from src.services.alarm_reconciliation import reconcile_startup
+        reconciliation = reconcile_startup()
+        if not reconciliation.get("ok", True):
+            console.print("[bold yellow]Alarm reconciliation reported an error; continuing startup.[/bold yellow]")
+    except Exception as e:
+        console.print(f"[bold yellow]Alarm reconciliation unavailable: {e}[/bold yellow]")
+
     # Google Auth
     initialize_google_auth()
 
@@ -154,7 +165,7 @@ async def main():
     try:
         from src.graph.agent import initialize_agent
         await initialize_agent()
-        console.print("[bold green]Agent initialized with MemorySaver.[/bold green]")
+        console.print("[bold green]Agent initialized with SQLite checkpoints.[/bold green]")
     except Exception as e:
         console.print(f"[bold red]Failed to initialize agent: {e}[/bold red]")
         return  # Can't continue without agent

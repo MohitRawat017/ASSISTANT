@@ -54,6 +54,7 @@ A: SMTP: Standard email protocol, works with any email provider
 
 import logging
 import smtplib
+from src.utils.reliability import ToolResult, stable_operation_id
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
@@ -98,7 +99,7 @@ class EmailService:
         self.sender_password = sender_password.replace(" ", "")
         self.recipient_email = recipient_email or sender_email
 
-    def send_reminder(self, subject: str, body: str) -> bool:
+    def send_reminder(self, subject: str, body: str) -> ToolResult:
         """
         Send a reminder email.
         
@@ -128,7 +129,7 @@ class EmailService:
         """
         if not self.sender_email or not self.sender_password:
             logger.warning("Gmail credentials not configured")
-            return False
+            return ToolResult(False, code="not_configured", hint="Gmail credentials are not configured.", error="Gmail credentials not configured", provider="smtp", operation_id=stable_operation_id("smtp", "reminder"))
 
         # Create message
         msg = MIMEMultipart()
@@ -154,7 +155,7 @@ class EmailService:
                 # Send the email
                 server.send_message(msg)
 
-            return True
+            return ToolResult(True, provider="smtp", operation_id=stable_operation_id("smtp", "reminder"))
         except Exception as e:
             logger.error("Error sending email: %s", e)
-            return False
+            return ToolResult(False, code="unknown_outcome", unknown_outcome=True, hint="SMTP may have accepted the reminder; inspect the mailbox before retrying.", error=str(e), provider="smtp", operation_id=stable_operation_id("smtp", "reminder"))

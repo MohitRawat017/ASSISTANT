@@ -1,4 +1,5 @@
 import os
+import math
 from dotenv import load_dotenv
 
 # Load .env file from project root
@@ -42,15 +43,102 @@ class Config:
     OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3.5:4b")
     OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
+    # Reliability budgets. An unset provider timeout preserves client-library
+    # defaults; setting one bounds the provider call without replaying the
+    # LangGraph invocation. Retry counts apply only to safe reads.
+    _ollama_timeout_raw = os.getenv("OLLAMA_TIMEOUT_SECONDS", os.getenv("OLLAMA_TIMEOUT", "300"))
+    try:
+        parsed_ollama_timeout = float(_ollama_timeout_raw) if _ollama_timeout_raw else None
+        OLLAMA_TIMEOUT = (
+            parsed_ollama_timeout
+            if parsed_ollama_timeout is not None
+            and math.isfinite(parsed_ollama_timeout)
+            and parsed_ollama_timeout > 0
+            else None
+        )
+    except ValueError:
+        OLLAMA_TIMEOUT = None
+    _ollama_retries_raw = os.getenv("OLLAMA_MAX_RETRIES", "0")
+    OLLAMA_MAX_RETRIES = min(3, int(_ollama_retries_raw)) if _ollama_retries_raw.isdigit() else 0
+
     MEMORY_DIR = os.path.join(BASE_DIR, "data", "memory")
+
+    _checkpoint_path_raw = os.getenv("CHECKPOINT_DB_PATH", os.path.join("data", "checkpoints.db"))
+    CHECKPOINT_DB_PATH = (
+        _checkpoint_path_raw
+        if os.path.isabs(_checkpoint_path_raw)
+        else os.path.join(BASE_DIR, _checkpoint_path_raw)
+    )
+    CHECKPOINT_RETENTION = os.getenv("CHECKPOINT_RETENTION", "keep_latest").strip().lower()
+    if CHECKPOINT_RETENTION not in {"keep_latest", "none"}:
+        CHECKPOINT_RETENTION = "keep_latest"
+    _checkpoint_busy_raw = os.getenv("CHECKPOINT_BUSY_TIMEOUT_MS", "10000")
+    CHECKPOINT_BUSY_TIMEOUT_MS = (
+        max(1, int(_checkpoint_busy_raw))
+        if _checkpoint_busy_raw.isdigit()
+        else 10_000
+    )
+
+    _memory_context_raw = os.getenv("MEMORY_CONTEXT_MAX_CHARS", "6000")
+    MEMORY_CONTEXT_MAX_CHARS = (
+        max(256, int(_memory_context_raw))
+        if _memory_context_raw.isdigit()
+        else 6000
+    )
+    _memory_item_raw = os.getenv("MEMORY_ITEM_MAX_CHARS", "500")
+    MEMORY_ITEM_MAX_CHARS = (
+        max(64, int(_memory_item_raw))
+        if _memory_item_raw.isdigit()
+        else 500
+    )
+    _memory_category_raw = os.getenv("MEMORY_MAX_ITEMS_PER_CATEGORY", "10")
+    MEMORY_MAX_ITEMS_PER_CATEGORY = (
+        max(1, int(_memory_category_raw))
+        if _memory_category_raw.isdigit()
+        else 10
+    )
+    _memory_busy_raw = os.getenv("MEMORY_BUSY_TIMEOUT_MS", "10000")
+    MEMORY_BUSY_TIMEOUT_MS = (
+        max(1, int(_memory_busy_raw))
+        if _memory_busy_raw.isdigit()
+        else 10_000
+    )
 
     GMAIL_ADDRESS = os.getenv("GMAIL_ADDRESS", "")
     GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "")
     REMINDER_EMAIL = os.getenv("REMINDER_EMAIL", "")  # Defaults to GMAIL_ADDRESS if empty
 
-    _debug_raw = os.getenv("DEBUG_MODE", "true").strip().lower()
+    # Debug console trace is OFF by default (ADR 0001): JSONL traces stay on
+    # (redacted + bounded) for explainability; set DEBUG_MODE=true to opt in
+    # to the verbose stdout trace.
+    _debug_raw = os.getenv("DEBUG_MODE", "false").strip().lower()
     DEBUG_MODE = _debug_raw in ("1", "true", "yes", "on")
     DEBUG_LOG_DIR = os.path.join(BASE_DIR, "logs", "agent_traces")
+
+    # Days to keep logs/agent_traces/agent_trace_*.jsonl files; older trace
+    # files are pruned after each write (bounded retention, ADR 0001).
+    _trace_retention_raw = os.getenv("TRACE_RETENTION_DAYS", "14")
+    TRACE_RETENTION_DAYS = max(
+        0, int(_trace_retention_raw)
+    ) if _trace_retention_raw.isdigit() else 14
+
+    # Keep the active day's trace bounded as well as age-limited. Rotated
+    # files use the same date prefix and are included in age pruning.
+    _trace_max_bytes_raw = os.getenv("TRACE_MAX_BYTES", "5000000")
+    TRACE_MAX_BYTES = max(
+        1, int(_trace_max_bytes_raw)
+    ) if _trace_max_bytes_raw.isdigit() else 5_000_000
+    _trace_backup_raw = os.getenv("TRACE_BACKUP_COUNT", "3")
+    TRACE_BACKUP_COUNT = max(
+        0, int(_trace_backup_raw)
+    ) if _trace_backup_raw.isdigit() else 3
+
+    # Maximum number of *.png files kept in data/screenshots; the oldest are
+    # deleted after each new screenshot so the folder stays bounded.
+    _screenshot_max_raw = os.getenv("SCREENSHOT_MAX_FILES", "50")
+    SCREENSHOT_MAX_FILES = max(
+        1, int(_screenshot_max_raw)
+    ) if _screenshot_max_raw.isdigit() else 50
 
     TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
     
@@ -94,3 +182,32 @@ class Config:
     VISION_MODEL_HOST = os.getenv("VISION_MODEL_HOST", "http://localhost:11434")
     _vision_num_gpu_raw = os.getenv("VISION_NUM_GPU", "99")
     VISION_NUM_GPU = int(_vision_num_gpu_raw) if _vision_num_gpu_raw.lstrip("-").isdigit() else 0
+    _vision_timeout_raw = os.getenv("VISION_TIMEOUT_SECONDS", os.getenv("VISION_TIMEOUT", "120"))
+    try:
+        parsed_vision_timeout = float(_vision_timeout_raw) if _vision_timeout_raw else None
+        VISION_TIMEOUT = (
+            parsed_vision_timeout
+            if parsed_vision_timeout is not None
+            and math.isfinite(parsed_vision_timeout)
+            and parsed_vision_timeout > 0
+            else None
+        )
+    except ValueError:
+        VISION_TIMEOUT = None
+    _vision_retries_raw = os.getenv("VISION_MAX_RETRIES", "0")
+    VISION_MAX_RETRIES = min(3, int(_vision_retries_raw)) if _vision_retries_raw.isdigit() else 0
+
+    _google_timeout_raw = os.getenv("GOOGLE_TIMEOUT_SECONDS", os.getenv("GOOGLE_TIMEOUT", "30"))
+    try:
+        parsed_google_timeout = float(_google_timeout_raw) if _google_timeout_raw else None
+        GOOGLE_TIMEOUT = (
+            parsed_google_timeout
+            if parsed_google_timeout is not None
+            and math.isfinite(parsed_google_timeout)
+            and parsed_google_timeout > 0
+            else None
+        )
+    except ValueError:
+        GOOGLE_TIMEOUT = None
+    _google_retries_raw = os.getenv("GOOGLE_MAX_RETRIES", "2")
+    GOOGLE_MAX_RETRIES = min(3, int(_google_retries_raw)) if _google_retries_raw.isdigit() else 2

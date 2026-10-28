@@ -26,6 +26,19 @@ from src.tools.wrapped_tools import save_memory, get_user_context
 from src.graph.agent import _build_system_prompt_with_memory
 
 
+@pytest.fixture(autouse=True)
+def isolated_memory_database(tmp_path, monkeypatch):
+    """Keep the historical phase tests out of the repository memory DB."""
+    from src.utils.config import Config
+    import src.tools.wrapped_tools as wrapped
+    import src.graph.agent as agent
+
+    monkeypatch.setattr(Config, "MEMORY_DIR", str(tmp_path))
+    store = LongTermMemory(str(tmp_path / "long_term.db"))
+    monkeypatch.setattr(wrapped, "memory_store", store)
+    monkeypatch.setattr(agent, "_memory_store", store)
+
+
 def test_1_basic_save():
     """TEST 1 — Basic memory save across restarts"""
     print("\n" + "=" * 50)

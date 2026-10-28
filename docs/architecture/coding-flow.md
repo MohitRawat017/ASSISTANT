@@ -17,12 +17,16 @@ merged, see [../standards/git.md](../standards/git.md).
 ## Primary Flow
 
 1. A query arrives from terminal or Telegram (voice is transcribed to text first).
-2. The shared runtime in `src/main.py` hands it to the LangGraph agent with the thread's short-term state; long-term memory is refreshed per query.
+2. The shared runtime in `src/main.py` hands it to the LangGraph agent with the thread's durable SQLite checkpoint state; long-term memory is refreshed from one bounded local store per query.
 3. The agent's ReAct loop decides: answer directly, or call tools from the registry in `src/tools/wrapped_tools.py`.
 4. Tool execution fans out to implementation modules: Google tools, PC automation, services, Telegram.
 5. Vision requests take a sub-flow: screenshot → describe/locate the element via NVIDIA or Ollama vision (`src/vision/screen_vision.py`) → coordinates mapped back to real screen pixels → mouse/keyboard automation runs.
 6. The agent composes a short final response.
 7. Output: printed or sent to the interface, optionally spoken via TTS, and the full tool trace is appended to `logs/agent_traces/agent_trace_YYYYMMDD.jsonl` (query source, thread id, tool calls, results, final response, duration, errors).
+
+Conversation checkpoints live in `data/checkpoints.db` by default. Terminal and
+Telegram thread IDs are distinct. Telegram `/clear` deletes only the current
+thread's checkpoint rows; it does not affect long-term memory or other threads.
 
 ```
 [Terminal / Telegram text|voice] → [ASR if voice] → [LangGraph ReAct agent]
@@ -43,8 +47,11 @@ merged, see [../standards/git.md](../standards/git.md).
 Where these are enforced, without repeating their rules:
 
 - Configuration: `.env` is loaded and normalized once in `src/utils/config.py`; modules read `Config`, never raw env vars.
-- Observability: `DEBUG_MODE=true` enables the concise console trace and the JSONL logs.
+- Observability: JSONL traces are always written through the redaction/retention
+  boundary; `DEBUG_MODE=true` additionally enables the concise console trace.
 - Auth boundary: the Telegram allowlist; Google credentials live in gitignored token/credential files.
+- State boundary: checkpoints and long-term memory are local SQLite stores;
+  stored memory is fenced as untrusted context and bounded before prompt use.
 
 ## Related Documents
 

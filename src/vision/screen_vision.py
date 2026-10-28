@@ -3,6 +3,7 @@ import base64
 import io
 
 from src.utils.config import Config
+from src.utils.reliability import execute_with_retry
 
 
 VISION_WIDTH = 1280
@@ -42,13 +43,31 @@ def _normalize_model_text(response: object) -> str:
 def _chat_with_ollama_vision(messages: list[dict], options: dict | None = None) -> str:
     import ollama
 
-    client = ollama.Client(host=Config.VISION_MODEL_HOST)
-    response = client.chat(
-        model=Config.VISION_MODEL,
-        messages=messages,
-        options=options or {"num_gpu": Config.VISION_NUM_GPU},
+    client_kwargs = {"host": Config.VISION_MODEL_HOST}
+    if Config.VISION_TIMEOUT is not None:
+        client_kwargs["timeout"] = Config.VISION_TIMEOUT
+    try:
+        client = ollama.Client(**client_kwargs)
+    except TypeError as exc:
+        if Config.VISION_TIMEOUT is not None:
+            raise RuntimeError(
+                "The installed Ollama client cannot enforce VISION_TIMEOUT_SECONDS."
+            ) from exc
+        client = ollama.Client(host=Config.VISION_MODEL_HOST)
+
+    result = execute_with_retry(
+        lambda: client.chat(
+            model=Config.VISION_MODEL,
+            messages=messages,
+            options=options or {"num_gpu": Config.VISION_NUM_GPU},
+        ),
+        provider="ollama-vision",
+        max_retries=Config.VISION_MAX_RETRIES,
+        safe_to_retry=True,
     )
-    return response["message"]["content"]
+    if not result.ok:
+        raise RuntimeError(result.error or result.hint)
+    return result.value["message"]["content"]
 
 
 def _to_nvidia_human_message(message: dict):
@@ -78,14 +97,32 @@ def _chat_with_nvidia_vision(messages: list[dict]) -> str:
 
     from langchain_nvidia_ai_endpoints import ChatNVIDIA
 
-    client = ChatNVIDIA(
+    client_kwargs = dict(
         model=Config.VISION_MODEL,
         api_key=Config.NVIDIA_API_KEY,
         temperature=Config.VISION_TEMPERATURE,
         top_p=Config.VISION_TOP_P,
         max_completion_tokens=Config.VISION_MAX_COMPLETION_TOKENS,
     )
-    response = client.invoke([_to_nvidia_human_message(message) for message in messages])
+    if Config.VISION_TIMEOUT is not None:
+        client_kwargs["timeout"] = Config.VISION_TIMEOUT
+    try:
+        client = ChatNVIDIA(**client_kwargs)
+    except TypeError as exc:
+        if Config.VISION_TIMEOUT is not None:
+            raise RuntimeError(
+                "The installed NVIDIA client cannot enforce VISION_TIMEOUT_SECONDS."
+            ) from exc
+        client = ChatNVIDIA(**client_kwargs)
+    result = execute_with_retry(
+        lambda: client.invoke([_to_nvidia_human_message(message) for message in messages]),
+        provider="nvidia-vision",
+        max_retries=Config.VISION_MAX_RETRIES,
+        safe_to_retry=True,
+    )
+    if not result.ok:
+        raise RuntimeError(result.error or result.hint)
+    response = result.value
     return _normalize_model_text(response)
 
 

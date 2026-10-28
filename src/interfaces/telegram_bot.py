@@ -241,19 +241,20 @@ async def cmd_clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Handle /clear command - reset conversation history.
     
-    IMPLEMENTATION:
-    Instead of actually deleting from the checkpointer (complex),
-    we create a new thread_id. The old conversation still exists
-    but won't be loaded anymore.
+    The durable checkpoint rows for the current thread are deleted. The same
+    logical thread ID is retained so restart persistence and isolation remain
+    predictable.
     """
     if not is_allowed(update):
         return
     chat_id = update.effective_chat.id
-    
-    # Create new thread_id with timestamp
-    context.chat_data["thread_id"] = f"telegram_{chat_id}_{int(time.time())}"
-    
-    await update.message.reply_text("Memory cleared, master. Fresh start!")
+    thread_id = context.chat_data.get("thread_id", f"telegram_{chat_id}")
+    from src.graph.agent import clear_thread
+    if clear_thread(thread_id):
+        context.chat_data["thread_id"] = thread_id
+        await update.message.reply_text("Memory cleared, master. Fresh start!")
+    else:
+        await update.message.reply_text("I couldn't clear the durable conversation state. Please try again.")
 
 
 

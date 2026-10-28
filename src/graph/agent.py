@@ -6,7 +6,7 @@ machine. Cloud vision (NVIDIA) is a separate, optional accelerator
 used only by src/vision/screen_vision.py.
 
 RESPONSIBILITIES:
-- Build and cache the ReAct agent (ChatOllama + wrapped tools + MemorySaver)
+- Build and cache the ReAct agent (ChatOllama + wrapped tools + SQLite checkpoints)
 - Refresh long-term memory into the system prompt on every query
 - Keep short-term history per thread_id (terminal, each Telegram chat, digest)
 - Print the concise debug trace and append JSONL records to
@@ -14,26 +14,42 @@ RESPONSIBILITIES:
 """
 
 import json
+import asyncio
 import logging
 import os
+import re
+import threading
 import time
-from datetime import datetime
+import uuid
+from datetime import datetime, timedelta
 
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import trim_messages
 from langchain_ollama import ChatOllama
-from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 
 from src.tools.wrapped_tools import ALL_TOOLS
 from src.utils.config import Config
+from src.utils.redaction import (
+    MAX_ARG_LEN,
+    MAX_QUERY_LEN,
+    MAX_RESPONSE_LEN,
+    MAX_RESULT_LEN,
+    redact_string,
+    redact_value,
+)
+from src.graph.checkpoint import build_checkpoint_saver
 
 logger = logging.getLogger(__name__)
+_trace_lock = threading.RLock()
 
 MEMORY_DIR = Config.MEMORY_DIR
 os.makedirs(MEMORY_DIR, exist_ok=True)
 
-checkpointer = MemorySaver()
+checkpointer = build_checkpoint_saver(
+    Config.CHECKPOINT_DB_PATH,
+    busy_timeout_ms=Config.CHECKPOINT_BUSY_TIMEOUT_MS,
+)
 
 BASE_SYSTEM_PROMPT = """Your name is Tsuzi. You are a warm, cheerful AI assistant.
 Address the user as "master".
@@ -66,9 +82,7 @@ def _build_system_prompt_with_memory() -> str:
     """
     prompt = BASE_SYSTEM_PROMPT
     try:
-        from src.memory import LongTermMemory
-
-        context = LongTermMemory().get_context_string()
+        context = _get_memory_store().get_context_string()
         if context:
             prompt += "\n" + context
     except Exception as e:
@@ -105,13 +119,30 @@ def _trim_state(state: dict) -> dict:
     return {"messages": trimmed}
 
 
-llm = ChatOllama(
-    model=Config.OLLAMA_MODEL,
-    base_url=Config.OLLAMA_BASE_URL,
-    temperature=0.3,
-)
+_ollama_kwargs = {
+    "model": Config.OLLAMA_MODEL,
+    "base_url": Config.OLLAMA_BASE_URL,
+    "temperature": 0.3,
+    # This is a model-call retry, not a replay of the LangGraph invocation.
+    "max_retries": Config.OLLAMA_MAX_RETRIES,
+}
+if Config.OLLAMA_TIMEOUT is not None:
+    # ChatOllama forwards HTTP options through client kwargs.
+    _ollama_kwargs["client_kwargs"] = {"timeout": Config.OLLAMA_TIMEOUT}
+    _ollama_kwargs["async_client_kwargs"] = {"timeout": Config.OLLAMA_TIMEOUT}
+llm = ChatOllama(**_ollama_kwargs)
 
 _agent = None
+_memory_store = None
+
+
+def _get_memory_store():
+    global _memory_store
+    if _memory_store is None:
+        from src.memory import LongTermMemory
+
+        _memory_store = LongTermMemory()
+    return _memory_store
 
 
 def _get_agent():
@@ -129,9 +160,10 @@ def _get_agent():
 
 async def initialize_agent():
     """Eagerly build the agent at startup (called by src.main)."""
+    _prune_old_traces()
     _get_agent()
     logger.info(
-        "Agent initialized with MemorySaver (model=%s at %s)",
+        "Agent initialized with SQLite checkpoints (model=%s at %s)",
         Config.OLLAMA_MODEL,
         Config.OLLAMA_BASE_URL,
     )
@@ -155,13 +187,13 @@ class _ToolTraceHandler(BaseCallbackHandler):
     def on_tool_start(self, serialized, input_str, **kwargs):
         try:
             name = serialized.get("name", "tool") if isinstance(serialized, dict) else "tool"
-            _debug(self.source, self.thread_id, f"Calling tool: {name} | args: {str(input_str)[:300]}")
+            _debug(self.source, self.thread_id, f"Calling tool: {name} | args: {redact_string(str(input_str), 300)}")
         except Exception:
             pass
 
     def on_tool_end(self, output, **kwargs):
         try:
-            _debug(self.source, self.thread_id, f"Tool result: -> {str(output)[:300]}")
+            _debug(self.source, self.thread_id, f"Tool result: -> {redact_string(str(output), 300)}")
         except Exception:
             pass
 
@@ -185,15 +217,78 @@ def _extract_tool_events(messages: list) -> tuple[list, list]:
 
 
 def _write_trace_record(record: dict):
+    """Redact + bound one record, append it to today's JSONL, prune old files.
+
+    Redaction happens at this single choke point so every trace writer is
+    covered (ADR 0001): secrets are scrubbed and long values bounded, while
+    diagnostic fields (tool names, duration_s, thread_id) stay intact.
+    """
+    record["query"] = redact_value(record.get("query"), MAX_QUERY_LEN)
+    record["tool_calls"] = redact_value(record.get("tool_calls"), MAX_ARG_LEN)
+    record["tool_results"] = redact_value(record.get("tool_results"), MAX_RESULT_LEN)
+    record["final_response"] = redact_value(record.get("final_response"), MAX_RESPONSE_LEN)
+    record["error"] = redact_value(record.get("error"), MAX_RESULT_LEN)
     try:
         os.makedirs(Config.DEBUG_LOG_DIR, exist_ok=True)
         path = os.path.join(
             Config.DEBUG_LOG_DIR, f"agent_trace_{datetime.now().strftime('%Y%m%d')}.jsonl"
         )
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+        line = json.dumps(record, ensure_ascii=False, default=str) + "\n"
+        with _trace_lock:
+            _rotate_trace_if_needed(path, len(line.encode("utf-8")))
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(line)
     except OSError as e:
         logger.warning("Could not write agent trace: %s", e)
+    _prune_old_traces()
+
+
+def _rotate_trace_if_needed(path: str, incoming_bytes: int) -> None:
+    """Rotate the current day's trace before it exceeds its size budget."""
+    max_bytes = max(1, int(Config.TRACE_MAX_BYTES))
+    if not os.path.exists(path) or os.path.getsize(path) + incoming_bytes <= max_bytes:
+        return
+
+    backup_count = max(0, int(Config.TRACE_BACKUP_COUNT))
+    if backup_count == 0:
+        os.remove(path)
+        return
+
+    stem, suffix = os.path.splitext(path)
+    for index in range(backup_count, 0, -1):
+        source = f"{stem}.{index}{suffix}"
+        destination = f"{stem}.{index + 1}{suffix}"
+        if os.path.exists(source):
+            if index == backup_count:
+                os.remove(source)
+            else:
+                os.replace(source, destination)
+    os.replace(path, f"{stem}.1{suffix}")
+
+
+def _prune_old_traces():
+    """Delete agent_trace_*.jsonl files older than Config.TRACE_RETENTION_DAYS.
+
+    Retention age comes from the YYYYMMDD in the filename; names that do not
+    parse fall back to file mtime. Best-effort: never breaks trace writing.
+    """
+    try:
+        cutoff = (datetime.now() - timedelta(days=Config.TRACE_RETENTION_DAYS)).date()
+        for name in os.listdir(Config.DEBUG_LOG_DIR):
+            if not (name.startswith("agent_trace_") and name.endswith(".jsonl")):
+                continue
+            full_path = os.path.join(Config.DEBUG_LOG_DIR, name)
+            try:
+                match = re.match(r"agent_trace_(\d{8})(?:\.\d+)?\.jsonl$", name)
+                if not match:
+                    raise ValueError("unparseable trace filename")
+                file_date = datetime.strptime(match.group(1), "%Y%m%d").date()
+            except ValueError:
+                file_date = datetime.fromtimestamp(os.path.getmtime(full_path)).date()
+            if file_date < cutoff:
+                os.remove(full_path)
+    except OSError as e:
+        logger.warning("Could not prune old agent traces: %s", e)
 
 
 def _final_text(messages: list) -> str:
@@ -217,15 +312,38 @@ def _run_config(thread_id: str, source: str) -> dict:
     }
 
 
+def clear_thread(thread_id: str) -> bool:
+    """Delete one durable conversation thread without touching other threads."""
+    if not thread_id:
+        return False
+    try:
+        checkpointer.delete_thread(thread_id)
+        return True
+    except Exception as exc:
+        logger.error("Could not clear conversation thread %s: %s", thread_id, exc)
+        return False
+
+
+def _retain_thread(thread_id: str) -> None:
+    if Config.CHECKPOINT_RETENTION != "keep_latest":
+        return
+    try:
+        checkpointer.prune([thread_id], strategy="keep_latest")
+    except Exception as exc:
+        # Retention is housekeeping. A successful checkpoint must remain usable
+        # even if pruning is temporarily blocked by another local process.
+        logger.warning("Could not prune checkpoints for %s: %s", thread_id, exc)
+
+
 def _summarize(user_input: str, thread_id: str, source: str, result, t_start: float, error=None) -> str:
     messages = result.get("messages", []) if isinstance(result, dict) else []
     calls, tool_results = _extract_tool_events(messages)
     final_response = _final_text(messages) if not error else None
     duration = round(time.perf_counter() - t_start, 3)
 
-    _debug(source, thread_id, f"Query: {user_input}")
+    _debug(source, thread_id, f"Query: {redact_string(user_input, 300)}")
     if error is None:
-        _debug(source, thread_id, f"Final response: {final_response[:300]}")
+        _debug(source, thread_id, f"Final response: {redact_string(final_response, 300)}")
 
     _write_trace_record(
         {
@@ -245,13 +363,14 @@ def _summarize(user_input: str, thread_id: str, source: str, result, t_start: fl
 
 def run_agent(user_input: str, thread_id: str = "", source: str = "unknown") -> str:
     if not thread_id:
-        thread_id = f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        thread_id = f"session_{uuid.uuid4().hex}"
     t_start = time.perf_counter()
     try:
         result = _get_agent().invoke(
             {"messages": [{"role": "user", "content": user_input}]},
             _run_config(thread_id, source),
         )
+        _retain_thread(thread_id)
         return _summarize(user_input, thread_id, source, result, t_start)
     except Exception as e:
         logger.error("Agent error: %s", e)
@@ -261,13 +380,14 @@ def run_agent(user_input: str, thread_id: str = "", source: str = "unknown") -> 
 
 async def arun_agent(user_input: str, thread_id: str = "", source: str = "unknown") -> str:
     if not thread_id:
-        thread_id = f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        thread_id = f"session_{uuid.uuid4().hex}"
     t_start = time.perf_counter()
     try:
         result = await _get_agent().ainvoke(
             {"messages": [{"role": "user", "content": user_input}]},
             _run_config(thread_id, source),
         )
+        await asyncio.to_thread(_retain_thread, thread_id)
         return _summarize(user_input, thread_id, source, result, t_start)
     except Exception as e:
         logger.error("Async agent error: %s", e)

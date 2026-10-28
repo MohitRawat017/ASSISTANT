@@ -23,6 +23,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 # ── Alarm Manager Tests ───────────────────────────────────────────────────
 
+@pytest.mark.safe_smoke
 class TestAlarmManager:
     """Tests for AlarmManager."""
     
@@ -59,10 +60,11 @@ class TestAlarmManager:
         alarm_id = mgr.add_alarm("09:00", "Temp Alarm")
         mgr.delete_alarm(alarm_id)
         
-        # Verify alarm is deleted
-        alarms = mgr.get_alarms()
-        alarm_ids = [a.get("id") for a in alarms]
-        assert alarm_id not in alarm_ids
+        # R3 retains the lifecycle row so unresolved cleanup and delivery
+        # history remain recoverable.
+        alarm = mgr.get_alarm_by_id(alarm_id)
+        assert alarm["lifecycle"] == "cancelled"
+        assert alarm["enabled"] == 0
     
     def test_alarm_time_format(self, tmp_path):
         """Test alarm time is stored correctly."""

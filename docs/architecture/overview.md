@@ -17,7 +17,7 @@ What this system **is responsible for**:
 
 - Interpreting natural-language requests and deciding which tools to call (ReAct agent)
 - Executing productivity, communication, PC-control, and vision tools on the owner's machine
-- Persisting long-term memory and per-thread conversation state
+- Persisting long-term memory and SQLite-backed per-thread conversation state
 - Exposing the same assistant runtime over terminal and Telegram
 - Producing debug traces and JSONL query logs
 
@@ -34,6 +34,7 @@ What this system **is explicitly not responsible for**:
 |-----------|-----------------|
 | Terminal + Telegram runtime (`src/main.py`) | Starts the shared assistant runtime; terminal chat loop and Telegram wiring |
 | LangGraph agent (`src/graph/agent.py`) | ReAct loop, tool calling, prompt flow, debug tracing |
+| Checkpoint adapter (`src/graph/checkpoint.py`) | Durable local SQLite checkpoints with sync/async graph support |
 | Tool registry (`src/tools/wrapped_tools.py`) | The compact, documented tool surface the agent sees |
 | Google tools (`src/tools/google/`) | Gmail send/read/search, Calendar, Tasks via Google APIs |
 | PC automation (`src/tools/pc_automation/`) | App launch, window management, screenshots, mouse/keyboard, volume/brightness, system status |

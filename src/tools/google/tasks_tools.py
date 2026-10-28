@@ -25,6 +25,8 @@ https://developers.google.com/tasks/reference/rest
 """
 
 from src.tools.google.auth import get_tasks_service
+from src.utils.config import Config
+from src.utils.reliability import execute_google_read, execute_google_write, failure_result, stable_operation_id
 
 
 def add_google_task(title: str, notes: str = "", due: str | None = None) -> dict:
@@ -47,6 +49,7 @@ def add_google_task(title: str, notes: str = "", due: str | None = None) -> dict
         {"success": True, "task_id": "..."} on success
         {"success": False, "error": "..."} on failure
     """
+    operation_id = stable_operation_id("tasks", "add")
     try:
         service = get_tasks_service()
         
@@ -58,14 +61,16 @@ def add_google_task(title: str, notes: str = "", due: str | None = None) -> dict
             body["due"] = due
 
         # Insert into default tasklist
-        task = service.tasks().insert(
-            tasklist="@default",  # User's main task list
-            body=body
-        ).execute()
-        
-        return {"success": True, "task_id": task.get("id", "")}
+        result = execute_google_write(
+            lambda: service.tasks().insert(tasklist="@default", body=body),
+            provider="tasks",
+            operation_id=operation_id,
+        )
+        if result.ok:
+            result["task_id"] = result.pop("value", {}).get("id", "")
+        return result
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return failure_result(e, provider="tasks", operation_id=operation_id)
 
 
 def get_google_tasks(show_completed: bool = False) -> dict:
@@ -89,17 +94,19 @@ def get_google_tasks(show_completed: bool = False) -> dict:
         service = get_tasks_service()
 
         # Fetch tasks; showCompleted=False excludes completed tasks server-side
-        result = (
-            service.tasks()
-            .list(
+        result = execute_google_read(
+            lambda: service.tasks().list(
                 tasklist="@default",
                 showCompleted=show_completed
-            )
-            .execute()
+            ),
+            operation_id=stable_operation_id("tasks", "list", str(show_completed)),
+            max_retries=Config.GOOGLE_MAX_RETRIES,
         )
-
+        if not result.ok:
+            return result
+        payload = result.pop("value", {})
         tasks = []
-        for item in result.get("items", []):
+        for item in payload.get("items", []):
             tasks.append(
                 {
                     "id": item.get("id", ""),
@@ -109,11 +116,10 @@ def get_google_tasks(show_completed: bool = False) -> dict:
                     "status": item.get("status", "needsAction"),
                 }
             )
-        return {"success": True, "tasks": tasks}
+        result["tasks"] = tasks
+        return result
     except Exception as e:
-        # HttpError.reason is the short API message; str(e) dumps the whole blob
-        reason = getattr(e, "reason", None) or str(e)
-        return {"success": False, "error": str(reason)[:200]}
+        return failure_result(e, provider="tasks", operation_id=stable_operation_id("tasks", "list"))
 
 
 def complete_google_task(task_id: str) -> dict:
@@ -132,18 +138,19 @@ def complete_google_task(task_id: str) -> dict:
         {"success": True} on success
         {"success": False, "error": "..."} on failure
     """
+    operation_id = stable_operation_id("tasks", "complete")
     try:
         service = get_tasks_service()
         
-        service.tasks().patch(
-            tasklist="@default",
-            task=task_id,
-            body={"status": "completed"}
-        ).execute()
-        
-        return {"success": True}
+        return execute_google_write(
+            lambda: service.tasks().patch(
+                tasklist="@default", task=task_id, body={"status": "completed"}
+            ),
+            provider="tasks",
+            operation_id=operation_id,
+        )
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return failure_result(e, provider="tasks", operation_id=operation_id)
 
 
 def delete_google_task(task_id: str) -> dict:
@@ -162,12 +169,13 @@ def delete_google_task(task_id: str) -> dict:
         {"success": True} on success
         {"success": False, "error": "..."} on failure
     """
+    operation_id = stable_operation_id("tasks", "delete")
     try:
         service = get_tasks_service()
-        service.tasks().delete(
-            tasklist="@default",
-            task=task_id
-        ).execute()
-        return {"success": True}
+        return execute_google_write(
+            lambda: service.tasks().delete(tasklist="@default", task=task_id),
+            provider="tasks",
+            operation_id=operation_id,
+        )
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return failure_result(e, provider="tasks", operation_id=operation_id)

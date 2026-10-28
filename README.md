@@ -252,7 +252,13 @@ VISION_MAX_COMPLETION_TOKENS=16384
 VISION_MODEL_HOST=http://localhost:11434
 VISION_NUM_GPU=99
 
-DEBUG_MODE=true
+DEBUG_MODE=false
+
+# Trace and log retention (see "Privacy and retention" below)
+TRACE_RETENTION_DAYS=14
+TRACE_MAX_BYTES=5000000
+TRACE_BACKUP_COUNT=3
+SCREENSHOT_MAX_FILES=50
 
 TELEGRAM_BOT_TOKEN=your_bot_token
 TELEGRAM_ALLOWED_USER_ID=your_numeric_user_id
@@ -261,6 +267,16 @@ GMAIL_ADDRESS=you@gmail.com
 GMAIL_APP_PASSWORD=your_app_password
 REMINDER_EMAIL=you@gmail.com
 ```
+
+For first-time Google authorization or recovery after revoked credentials,
+restore `src/credentials/credentials.json` and run:
+
+```powershell
+python -m src.tools.google.auth
+```
+
+Normal assistant tool calls refresh an existing refresh token silently and do
+not open a browser.
 
 ### 5. Run the assistant
 
@@ -302,7 +318,8 @@ then request CodeRabbit/GitHub review for the stabilization PR.
 
 ## Debugging Flow
 
-When `DEBUG_MODE=true`, Tsuzi prints a concise trace like this:
+Debug console output is **off by default**. When `DEBUG_MODE=true`, Tsuzi
+prints a concise trace like this:
 
 ```text
 [debug][terminal_text][a1b2c3d4] Query: open chrome and search for github
@@ -327,6 +344,23 @@ Each record includes:
 - final response
 - duration
 - error, if any
+
+### Privacy and retention
+
+- Debug console output is off by default (`DEBUG_MODE=true` enables it).
+- JSONL traces stay on so any failed query remains explainable, but they are
+  **redacted** at the write choke point: values under sensitive keys
+  (password, token, api_key, authorization, cookie, credential, private_key,
+  ...) and common mail fields (`to`, `cc`, `bcc`, `body`, `recipient`) become
+  `[REDACTED]`; Bearer tokens and common provider keys are scrubbed from plain
+  strings. Long values are truncated with an explicit marker.
+- Trace files are pruned after `TRACE_RETENTION_DAYS` days (default 14) and
+  the active daily file rotates at `TRACE_MAX_BYTES` (default 5 MB), keeping
+  `TRACE_BACKUP_COUNT` backups (default 3).
+- Screenshots in `data/screenshots/` are capped at `SCREENSHOT_MAX_FILES`
+  (default 50); the oldest are deleted after each new capture.
+- `logs/reminders.log` and `logs/reminder_failures.log` rotate at ~1 MB with
+  2 backups kept.
 
 ---
 
