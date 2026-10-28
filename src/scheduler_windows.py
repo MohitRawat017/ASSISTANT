@@ -120,7 +120,9 @@ class WindowsScheduler:
                 present = cls.query_task(task_name)
                 if present is False:
                     cls._remove_bat_for_task(task_name)
-                    result = ToolResult(True, code="already_absent", hint="Task was already absent; cleanup is complete.", operation_id=operation_id, provider="windows_scheduler", task_name=task_name)
+                    result = ToolResult(True, hint="Task was already absent; cleanup is complete.", operation_id=operation_id, provider="windows_scheduler", task_name=task_name, already_absent=True)
+                elif present is None:
+                    result = ToolResult(False, code="unknown_outcome", unknown_outcome=True, hint="Task deletion failed and its state could not be queried; inspect Task Scheduler before retrying.", error=(getattr(response, "stderr", "") or "schtasks returned a non-zero exit code").strip(), operation_id=operation_id, provider="windows_scheduler", task_name=task_name)
                 else:
                     result = ToolResult(False, code="cleanup_failed", hint="Task cleanup failed; retry reconciliation.", error=(getattr(response, "stderr", "") or "schtasks returned a non-zero exit code").strip(), operation_id=operation_id, provider="windows_scheduler", task_name=task_name)
         except subprocess.TimeoutExpired as exc:

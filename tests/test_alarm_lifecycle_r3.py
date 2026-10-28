@@ -178,6 +178,40 @@ def test_scheduler_nonzero_and_timeout_are_not_success(monkeypatch):
 
 
 @pytest.mark.safe_smoke
+def test_unregister_already_absent_task_is_a_valid_success(monkeypatch):
+    from src.scheduler_windows import WindowsScheduler
+    from types import SimpleNamespace
+
+    def runner(command, **kwargs):
+        return SimpleNamespace(returncode=1, stderr="ERROR: task not found")
+
+    monkeypatch.setattr(WindowsScheduler, "runner", staticmethod(runner))
+    result = WindowsScheduler.unregister_task_result("TsuziReminder_already-absent")
+
+    assert result.ok is True
+    assert result.code == "ok"
+    assert result.get("already_absent") is True
+
+
+@pytest.mark.safe_smoke
+def test_unregister_query_timeout_is_unknown(monkeypatch):
+    from src.scheduler_windows import WindowsScheduler
+    import subprocess
+    from types import SimpleNamespace
+
+    def runner(command, **kwargs):
+        if "/query" in command:
+            raise subprocess.TimeoutExpired("schtasks", 15)
+        return SimpleNamespace(returncode=1, stderr="delete failed")
+
+    monkeypatch.setattr(WindowsScheduler, "runner", staticmethod(runner))
+    result = WindowsScheduler.unregister_task_result("TsuziReminder_query-timeout")
+
+    assert result.ok is False
+    assert result.unknown_outcome is True
+
+
+@pytest.mark.safe_smoke
 def test_set_alarm_empty_scheduler_registration_is_not_success(monkeypatch, tmp_path):
     from tests.test_registry_smoke import _install_offline_stubs
     _install_offline_stubs(monkeypatch)
