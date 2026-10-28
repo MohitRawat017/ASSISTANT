@@ -16,6 +16,8 @@ Does not restate current architecture — see [../architecture/overview.md](../a
 | Item | Outcome it serves (see vision.md) | Status |
 |------|-----------------------------------|--------|
 | Stabilization: keep the safe smoke gate green, tidy test markers | Explainable, reliable behavior | Ongoing |
+| R8 persistent conversation state | Restart-safe, isolated conversations | Implemented; acceptance verification ongoing |
+| R6 bounded and fenced memory | Predictable prompt size and safer context | Implemented; acceptance verification ongoing |
 
 ## Done (delivered through Phase 5)
 
@@ -31,7 +33,7 @@ Does not restate current architecture — see [../architecture/overview.md](../a
 
 | Item | Outcome it serves |
 |------|-------------------|
-| New phases, defined as specs under [`specs/`](../../specs/) before implementation | Scoped, reviewable increments that build on the Phase 5 base |
+| R3 follow-up: scheduler reconciliation and Windows locale/recurrence hardening | Honest recovery on the target platform | Next |
 
 ## Later (Directional)
 

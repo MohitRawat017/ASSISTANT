@@ -3,6 +3,8 @@
 **Review date:** 2026-10-27
 **Audit baseline:** `5e728c1` (`chore/v2-release`)
 **Review scope:** the pasted comparative audit and the uncommitted Wave 1 changes present in the working tree.
+**Status:** Historical Wave 1 baseline. R2/R3 findings and the R8/R6 follow-up
+are tracked in [`tsuzi-v2-next-wave-plan.md`](./tsuzi-v2-next-wave-plan.md).
 
 ## 1. Executive verdict
 
@@ -22,7 +24,8 @@ The current working tree has been corrected for the Wave 1 scope:
   file rotation, screenshot retention/path validation, and reminder-log
   sanitization are covered by deterministic tests.
 
-R2, R3, R5, R6, R7, R8, and R9 remain intentionally staged for later waves.
+At this historical baseline, R2, R3, R5, R6, R7, R8, and R9 remained staged
+for later waves.
 They should not be implemented out of order, especially R3 before the R2
 error contract and R6/R8 concurrently in `src/graph/agent.py`.
 
@@ -56,7 +59,8 @@ credentials, network writes, desktop automation, or email sends:
 | `git diff --check` | **passed** |
 
 An unfiltered run that included all of `tests/test_managers.py` produced 22
-expected failures from legacy task/calendar/habit manager imports; those
+expected failures from legacy task/calendar/habit manager imports plus the
+then-unupdated alarm deletion assertion; those
 modules do not exist in the repository. They are intentionally not counted as
 Wave 1 passes and remain a Wave 5 test-cleanup decision.
 

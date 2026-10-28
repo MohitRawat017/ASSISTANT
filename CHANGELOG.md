@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Replaced process-local `MemorySaver` with a durable SQLite checkpoint store;
+  sync and async agent calls share the same WAL-backed database, thread IDs
+  remain isolated, and Telegram `/clear` removes only its current thread.
+- Long-term memory now uses WAL/busy-timeout connections, bounded fenced
+  context, category-aware deduplication, and isolated deterministic tests.
+- Alarm lifecycle cleanup now distinguishes legacy result envelopes, preserves
+  scheduler identity across unknown registration outcomes, and exposes explicit
+  cleanup and definite-failure delivery retry tools.
+
 - Debug console tracing (`DEBUG_MODE`) now defaults to **off**; set
   `DEBUG_MODE=true` in `.env` to restore the verbose stdout trace. JSONL
   agent traces stay on for explainability (per the product vision) but are
@@ -52,7 +61,7 @@ with the agent core rebuilt and tracked in git.
 ### Changed
 
 - Rebuilt the LangGraph agent core (`src/graph/agent.py`) as local-first
-  Ollama (`langchain-ollama`) with MemorySaver checkpointer, per-query
+  Ollama (`langchain-ollama`) with a SQLite checkpointer, per-query
   memory refresh into the system prompt, and source-aware debug tracing
   plus JSONL query logs; the module is tracked in git again after being
   accidentally untracked and lost in `d40e0e0`.

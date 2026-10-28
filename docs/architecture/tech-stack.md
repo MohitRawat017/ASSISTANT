@@ -17,7 +17,8 @@ technologies lives — see [folder-structure.md](./folder-structure.md).
 
 | Concern | Choice | Why |
 |---------|--------|-----|
-| Agent framework | LangGraph (>= 0.2) | ReAct loop, tool calling, per-thread state that grows without a rewrite |
+| Agent framework | LangGraph (>= 1.2.17, < 2.0) | ReAct loop, tool calling, durable per-thread state |
+| Conversation checkpoints | langgraph-checkpoint-sqlite 3.1.2 | Local SQLite persistence with WAL and bounded busy timeout |
 | LLM bindings | langchain-core, langchain-ollama, langchain-openai, langchain-nvidia-ai-endpoints, langchain-groq | One interface across local Ollama and optional cloud providers |
 | Telegram | python-telegram-bot 21.11.1 (with job-queue) | Mature async bot with scheduling support |
 
