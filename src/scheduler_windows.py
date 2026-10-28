@@ -80,7 +80,7 @@ class WindowsScheduler:
             return cls._finish_register(ToolResult(False, code="invalid_input", hint="Use HH:MM time.", operation_id=operation_id, provider="windows_scheduler"), bat_path)
         except subprocess.TimeoutExpired as exc:
             # The command may have reached Windows before the client timed out.
-            return cls._finish_register(ToolResult(False, code="unknown_outcome", unknown_outcome=True, hint="Scheduler registration timed out; inspect Task Scheduler before retrying.", error=str(exc), operation_id=operation_id, provider="windows_scheduler"), bat_path, preserve_bat=True)
+            return cls._finish_register(ToolResult(False, code="unknown_outcome", unknown_outcome=True, hint="Scheduler registration timed out; inspect Task Scheduler before retrying.", error=str(exc), operation_id=operation_id, provider="windows_scheduler", task_name=task_name), bat_path, preserve_bat=True)
         except (OSError, subprocess.SubprocessError) as exc:
             return cls._finish_register(ToolResult(False, code="schedule_failed", hint="Windows Task Scheduler could not be reached; the alarm remains recoverable.", error=str(exc), operation_id=operation_id, provider="windows_scheduler"), bat_path)
         except Exception as exc:
@@ -117,7 +117,12 @@ class WindowsScheduler:
                 cls._remove_bat_for_task(task_name)
                 result = ToolResult(True, operation_id=operation_id, provider="windows_scheduler", task_name=task_name)
             else:
-                result = ToolResult(False, code="cleanup_failed", hint="Task cleanup failed; retry reconciliation.", error=(getattr(response, "stderr", "") or "schtasks returned a non-zero exit code").strip(), operation_id=operation_id, provider="windows_scheduler")
+                present = cls.query_task(task_name)
+                if present is False:
+                    cls._remove_bat_for_task(task_name)
+                    result = ToolResult(True, code="already_absent", hint="Task was already absent; cleanup is complete.", operation_id=operation_id, provider="windows_scheduler", task_name=task_name)
+                else:
+                    result = ToolResult(False, code="cleanup_failed", hint="Task cleanup failed; retry reconciliation.", error=(getattr(response, "stderr", "") or "schtasks returned a non-zero exit code").strip(), operation_id=operation_id, provider="windows_scheduler", task_name=task_name)
         except subprocess.TimeoutExpired as exc:
             result = ToolResult(False, code="unknown_outcome", unknown_outcome=True, hint="Task cleanup timed out; inspect Task Scheduler before retrying.", error=str(exc), operation_id=operation_id, provider="windows_scheduler")
         except (OSError, subprocess.SubprocessError) as exc:

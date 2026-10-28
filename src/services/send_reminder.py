@@ -91,6 +91,12 @@ def _safe_alarm_id(alarm_id: str) -> str:
     return safe_id or "unknown"
 
 
+def _result_ok(value: Any) -> bool:
+    if isinstance(value, dict):
+        return bool(value.get("ok", value.get("success", False)))
+    return bool(getattr(value, "ok", value))
+
+
 def _normalize_delivery(value: Any, *, provider: str, operation_id: str) -> ToolResult:
     if isinstance(value, ToolResult):
         return value
@@ -160,10 +166,23 @@ def _cleanup_alarm(manager: AlarmManager, alarm: dict[str, Any], scheduler=Windo
     if task_name:
         try:
             raw = scheduler.unregister_task_result(task_name) if hasattr(scheduler, "unregister_task_result") else scheduler.unregister_task(task_name)
-            result = raw if isinstance(raw, ToolResult) else (success_result(provider="windows_scheduler", operation_id=stable_operation_id("alarm", "cleanup", alarm["id"])) if raw else ToolResult(False, code="cleanup_failed", hint="Retry cleanup from reconciliation.", provider="windows_scheduler", operation_id=stable_operation_id("alarm", "cleanup", alarm["id"])))
+            if isinstance(raw, ToolResult):
+                result = raw
+            elif isinstance(raw, dict):
+                result = ToolResult(
+                    _result_ok(raw),
+                    code="ok" if _result_ok(raw) else raw.get("code", "cleanup_failed"),
+                    unknown_outcome=bool(raw.get("unknown_outcome", False)),
+                    hint=raw.get("hint", "Retry cleanup from reconciliation."),
+                    error=raw.get("error"),
+                    provider=raw.get("provider", "windows_scheduler"),
+                    operation_id=raw.get("operation_id", stable_operation_id("alarm", "cleanup", alarm["id"])),
+                )
+            else:
+                result = success_result(provider="windows_scheduler", operation_id=stable_operation_id("alarm", "cleanup", alarm["id"])) if raw else ToolResult(False, code="cleanup_failed", hint="Retry cleanup from reconciliation.", provider="windows_scheduler", operation_id=stable_operation_id("alarm", "cleanup", alarm["id"]))
         except Exception as exc:
             result = failure_result(exc, provider="windows_scheduler", operation_id=stable_operation_id("alarm", "cleanup", alarm["id"]), dispatched=True)
-        if result.ok:
+        if _result_ok(result):
             manager.mark_cleanup_done(alarm["id"])
         else:
             manager.mark_cleanup_failed(alarm["id"], result.get("error") or result.hint, hint=result.hint, unknown=result.unknown_outcome)

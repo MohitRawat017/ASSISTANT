@@ -84,6 +84,11 @@ class AlarmManager:
     def migrate(self, conn: sqlite3.Connection) -> None:
         """Add R3 columns to databases created by earlier releases."""
         existing = {row[1] for row in conn.execute("PRAGMA table_info(alarms)").fetchall()}
+        lifecycle_was_missing = "lifecycle" not in existing
+        status_was_missing = "status" not in existing
+        schedule_was_missing = "schedule_state" not in existing
+        delivery_was_missing = "delivery_state" not in existing
+        cleanup_was_missing = "cleanup_state" not in existing
         columns = {
             "notified": "BOOLEAN DEFAULT 0",
             "scheduled_task_name": "TEXT",
@@ -127,11 +132,26 @@ class AlarmManager:
         )
         # Normalize NULLs introduced by ALTER TABLE while preserving notified.
         # Preserve explicit lifecycle states during every startup migration.
-        conn.execute("UPDATE alarms SET lifecycle = CASE WHEN lifecycle IN ('cancelled', 'delivered', 'delivery_unknown') THEN lifecycle WHEN notified = 1 THEN 'delivered' WHEN enabled = 0 THEN 'disabled' ELSE COALESCE(lifecycle, 'active') END")
-        conn.execute("UPDATE alarms SET status = lifecycle WHERE status IS NULL OR status = ''")
-        conn.execute("UPDATE alarms SET schedule_state = CASE WHEN scheduled_task_name IS NOT NULL AND scheduled_task_name != '' THEN 'scheduled' ELSE COALESCE(schedule_state, 'pending') END")
-        conn.execute("UPDATE alarms SET delivery_state = CASE WHEN notified = 1 THEN 'succeeded' ELSE COALESCE(delivery_state, 'pending') END")
-        conn.execute("UPDATE alarms SET cleanup_state = COALESCE(cleanup_state, 'pending')")
+        if lifecycle_was_missing:
+            conn.execute("UPDATE alarms SET lifecycle = CASE WHEN notified = 1 THEN 'delivered' WHEN enabled = 0 THEN 'disabled' ELSE 'active' END")
+        else:
+            conn.execute("UPDATE alarms SET lifecycle = CASE WHEN lifecycle IS NULL OR lifecycle = '' THEN CASE WHEN notified = 1 THEN 'delivered' WHEN enabled = 0 THEN 'disabled' ELSE 'active' END ELSE lifecycle END")
+        if status_was_missing:
+            conn.execute("UPDATE alarms SET status = lifecycle")
+        else:
+            conn.execute("UPDATE alarms SET status = lifecycle WHERE status IS NULL OR status = ''")
+        if schedule_was_missing:
+            conn.execute("UPDATE alarms SET schedule_state = CASE WHEN scheduled_task_name IS NOT NULL AND scheduled_task_name != '' THEN 'scheduled' ELSE 'pending' END")
+        else:
+            conn.execute("UPDATE alarms SET schedule_state = COALESCE(schedule_state, 'pending')")
+        if delivery_was_missing:
+            conn.execute("UPDATE alarms SET delivery_state = CASE WHEN notified = 1 THEN 'succeeded' ELSE 'pending' END")
+        else:
+            conn.execute("UPDATE alarms SET delivery_state = COALESCE(delivery_state, 'pending')")
+        if cleanup_was_missing:
+            conn.execute("UPDATE alarms SET cleanup_state = 'pending'")
+        else:
+            conn.execute("UPDATE alarms SET cleanup_state = COALESCE(cleanup_state, 'pending')")
         conn.execute("UPDATE alarms SET attempt_count = COALESCE(attempt_count, 0)")
         # Populate durable values for rows created by R1/R2 without changing
         # their original time or notified semantics.
@@ -227,7 +247,11 @@ class AlarmManager:
         return self._update(alarm_id, values)
 
     def set_scheduled_task(self, alarm_id: str, task_name: str) -> bool:
-        return self.set_schedule_state(alarm_id, "scheduled", task_name=task_name)
+        return self._update(
+            alarm_id,
+            {"schedule_state": "scheduled", "scheduled_task_name": task_name, "last_hint": None, "last_error": None},
+            where="AND enabled = 1 AND lifecycle NOT IN ('disabled', 'cancelled', 'delivered', 'delivery_unknown')",
+        )
 
     def claim_for_delivery(
         self, alarm_id: str, *, now: datetime | str | None = None,
@@ -346,11 +370,14 @@ class AlarmManager:
             return True
         try:
             raw = scheduler.unregister_task_result(task_name) if hasattr(scheduler, "unregister_task_result") else scheduler.unregister_task(task_name)
-            ok = raw.ok if isinstance(raw, ToolResult) else bool(raw)
+            ok = raw.ok if isinstance(raw, ToolResult) else bool(raw.get("ok", raw.get("success", False))) if isinstance(raw, dict) else bool(raw)
             if ok:
                 self.mark_cleanup_done(alarm_id)
+                self._update(alarm_id, {"scheduled_task_name": None, "schedule_state": "cancelled"})
             else:
-                self.mark_cleanup_failed(alarm_id, "cancel cleanup failed", unknown=bool(getattr(raw, "unknown_outcome", False)))
+                unknown = bool(raw.get("unknown_outcome", False)) if isinstance(raw, dict) else bool(getattr(raw, "unknown_outcome", False))
+                error = raw.get("error", "cancel cleanup failed") if isinstance(raw, dict) else "cancel cleanup failed"
+                self.mark_cleanup_failed(alarm_id, error, unknown=unknown)
         except Exception as exc:
             self.mark_cleanup_failed(alarm_id, str(exc), unknown=True)
         return True
@@ -362,16 +389,19 @@ class AlarmManager:
     def toggle_alarm(self, alarm_id: str, enabled: bool, *, scheduler=WindowsScheduler) -> bool:
         row = self.get_alarm_by_id(alarm_id) or {}
         if enabled:
-            was_cancelled = row.get("lifecycle") == "cancelled"
-            lifecycle = "active" if row.get("lifecycle") in {"disabled", "cancelled"} else row.get("lifecycle", "active")
+            was_inactive = row.get("lifecycle") in {"disabled", "cancelled"}
+            lifecycle = "active" if was_inactive else row.get("lifecycle", "active")
             delivery = "pending" if lifecycle == "active" and not row.get("notified") else row.get("delivery_state", "pending")
             values = {"enabled": 1, "lifecycle": lifecycle, "status": lifecycle, "delivery_state": delivery}
-            if was_cancelled:
-                values.update({"schedule_state": "pending", "scheduled_task_name": None, "cleanup_state": "pending"})
+            if was_inactive:
+                values.update({"schedule_state": "pending", "cleanup_state": "pending"})
+                if row.get("cleanup_state") == "done":
+                    values["scheduled_task_name"] = None
             return self._update(alarm_id, values)
         changed = self._update(
             alarm_id,
             {"enabled": 0, "lifecycle": "disabled", "status": "disabled",
+             "schedule_state": "disabled",
              "delivery_state": "skipped", "delivery_claim": None,
              "delivery_lease": None, "delivery_claimed_at": None,
              "delivery_lease_until": None, "cleanup_state": "pending"},
@@ -379,10 +409,14 @@ class AlarmManager:
         if changed and row.get("scheduled_task_name"):
             try:
                 raw = scheduler.unregister_task_result(row["scheduled_task_name"]) if hasattr(scheduler, "unregister_task_result") else scheduler.unregister_task(row["scheduled_task_name"])
-                if getattr(raw, "ok", raw):
+                ok = raw.ok if isinstance(raw, ToolResult) else bool(raw.get("ok", raw.get("success", False))) if isinstance(raw, dict) else bool(raw)
+                if ok:
                     self.mark_cleanup_done(alarm_id)
+                    self._update(alarm_id, {"scheduled_task_name": None})
                 else:
-                    self.mark_cleanup_failed(alarm_id, "disable cleanup failed", unknown=bool(getattr(raw, "unknown_outcome", False)))
+                    unknown = bool(raw.get("unknown_outcome", False)) if isinstance(raw, dict) else bool(getattr(raw, "unknown_outcome", False))
+                    error = raw.get("error", "disable cleanup failed") if isinstance(raw, dict) else "disable cleanup failed"
+                    self.mark_cleanup_failed(alarm_id, error, unknown=unknown)
             except Exception as exc:
                 self.mark_cleanup_failed(alarm_id, str(exc), unknown=True)
         return changed

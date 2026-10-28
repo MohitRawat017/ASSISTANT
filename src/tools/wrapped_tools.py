@@ -19,6 +19,12 @@ def _provider_failure(result: dict, fallback: str = "unknown error") -> str:
     return str(message)
 
 
+def _result_ok(result) -> bool:
+    if isinstance(result, dict):
+        return bool(result.get("ok", result.get("success", False)))
+    return bool(getattr(result, "ok", result))
+
+
 def get_alarm_manager():
     """
     Get or create the AlarmManager singleton.
@@ -170,10 +176,18 @@ def set_alarm(time: str, label: str = "Alarm") -> str:
                 task_name = result.get("task_name") or ""
                 if result.ok and task_name and mgr.set_scheduled_task(alarm_id, task_name):
                     return f"Alarm set for {normalized}" + (f" ({label})" if label != "Alarm" else "") + "."
+                if result.ok and task_name:
+                    # The alarm may have been cancelled while schtasks ran.
+                    # Never leave a scheduler task behind when its durable row
+                    # no longer accepts the registration.
+                    try:
+                        WindowsScheduler.unregister_task_result(task_name)
+                    except Exception:
+                        pass
                 state = "unknown" if result.get("unknown_outcome") else "failed"
                 hint = result.get("hint") or "Check Windows Task Scheduler and retry registration."
                 operation_id = result.get("operation_id") or alarm_id
-                mgr.set_schedule_state(alarm_id, state, hint=hint, error=(result.get("error") if result else "empty scheduler registration"))
+                mgr.set_schedule_state(alarm_id, state, task_name=task_name or None, hint=hint, error=(result.get("error") if result else "empty scheduler registration"))
                 return f"Alarm saved but scheduling {state} (operation_id={operation_id}). {hint}"
             except Exception as e:
                 mgr.set_schedule_state(alarm_id, "failed", hint="Check Windows Task Scheduler and retry registration.", error=str(e))
@@ -218,10 +232,20 @@ def delete_alarm(alarm_id: str) -> str:
 def enable_alarm(alarm_id: str) -> str:
     """Enable a previously disabled/cancelled alarm."""
     try:
-        if get_alarm_manager().toggle_alarm(alarm_id, True):
-            alarm = get_alarm_manager().get_alarm_by_id(alarm_id) or {}
+        manager = get_alarm_manager()
+        if manager.toggle_alarm(alarm_id, True):
+            alarm = manager.get_alarm_by_id(alarm_id) or {}
+            if alarm.get("schedule_state") == "pending" and not alarm.get("scheduled_task_name"):
+                from src.scheduler_windows import WindowsScheduler
+                result = WindowsScheduler.register_alarm_result(alarm_id, alarm.get("time", ""), alarm.get("label", "Alarm"))
+                task_name = result.get("task_name") or ""
+                if result.ok and task_name and manager.set_scheduled_task(alarm_id, task_name):
+                    alarm = manager.get_alarm_by_id(alarm_id) or alarm
+                else:
+                    manager.set_schedule_state(alarm_id, "unknown" if result.get("unknown_outcome") else "failed", task_name=task_name or None, hint=result.get("hint"), error=result.get("error"))
+            alarm = manager.get_alarm_by_id(alarm_id) or alarm
             schedule = alarm.get("schedule_state", "unknown")
-            hint = " Register it before relying on delivery." if schedule == "pending" else ""
+            hint = " Register it before relying on delivery." if schedule != "scheduled" else ""
             return f"Alarm {alarm_id} enabled (state={alarm.get('lifecycle', 'active')}; schedule={schedule}).{hint}"
         return f"Alarm {alarm_id} not found or could not be enabled."
     except Exception as e:
@@ -261,6 +285,38 @@ def reconcile_alarms() -> str:
         return f"Alarm reconciliation: overdue={result['overdue']}, stale_claims={result['stale_claims']}, missing_tasks={result['missing_tasks']}, cleanup_pending={result['cleanup_pending']}, sent={result['sent']}"
     except Exception as e:
         return f"Alarm reconciliation unavailable: {e}"
+
+
+@tool
+def retry_alarm_cleanup(alarm_id: str) -> str:
+    """Retry only scheduler cleanup for a retained alarm; never redeliver it."""
+    try:
+        from src.services.alarm_reconciliation import retry_cleanup
+
+        result = retry_cleanup(alarm_id)
+        if result.get("ok"):
+            return f"Alarm {alarm_id} cleanup completed."
+        return f"Alarm {alarm_id} cleanup remains {result.get('state', 'failed')}; retry reconciliation."
+    except Exception as e:
+        return f"Alarm cleanup retry unavailable: {e}"
+
+
+@tool
+def retry_alarm_delivery(alarm_id: str) -> str:
+    """Explicitly retry a definite alarm delivery failure, never an unknown outcome."""
+    try:
+        manager = get_alarm_manager()
+        row = manager.get_alarm_by_id(alarm_id)
+        if not row:
+            return f"Alarm {alarm_id} not found."
+        if row.get("delivery_state") != "failed":
+            return f"Alarm {alarm_id} is {row.get('delivery_state')}; inspect it before retrying."
+        from src.services.send_reminder import process_alarm
+
+        result = process_alarm(alarm_id)
+        return f"Alarm {alarm_id} delivery retry: {result.get('state', 'unknown')}."
+    except Exception as e:
+        return f"Alarm delivery retry unavailable: {e}"
 
 
 @tool
@@ -757,21 +813,36 @@ def mark_email_read(email_id: str) -> str:
 # PC AUTOMATION TOOLS — Phase 4
 # =============================================================================
 
-from src.tools.pc_automation.screenshot import take_screenshot, take_region_screenshot
-from src.tools.pc_automation.mouse_keyboard import (
-    mouse_click, mouse_move, type_text, press_key, hotkey, scroll, get_screen_size
-)
-from src.tools.pc_automation.window_manager import (
-    get_open_windows, focus_window,
-    minimize_window, maximize_window, minimize_all_windows
-)
-from src.tools.pc_automation.system_controls import (
-    set_volume, get_volume, mute_volume, unmute_volume,
-    set_brightness, get_brightness, lock_screen, get_pc_stats
-)
-from src.tools.pc_automation.app_launcher import (
-    open_application, close_application, is_app_running
-)
+try:
+    from src.tools.pc_automation.screenshot import take_screenshot, take_region_screenshot
+    from src.tools.pc_automation.mouse_keyboard import (
+        mouse_click, mouse_move, type_text, press_key, hotkey, scroll, get_screen_size
+    )
+    from src.tools.pc_automation.window_manager import (
+        get_open_windows, focus_window,
+        minimize_window, maximize_window, minimize_all_windows
+    )
+    from src.tools.pc_automation.system_controls import (
+        set_volume, get_volume, mute_volume, unmute_volume,
+        set_brightness, get_brightness, lock_screen, get_pc_stats
+    )
+    from src.tools.pc_automation.app_launcher import (
+        open_application, close_application, is_app_running
+    )
+except Exception as _desktop_import_error:
+    # Keep registry and non-desktop tools importable on CI/Linux. Windows
+    # callers still load the real implementations when desktop dependencies
+    # are available; invocation here returns an actionable failure envelope.
+    _desktop_error_text = str(_desktop_import_error)
+
+    def _desktop_unavailable(*args, **kwargs):
+        return {"success": False, "error": f"Desktop automation unavailable: {_desktop_error_text}"}
+
+    take_screenshot = take_region_screenshot = _desktop_unavailable
+    mouse_click = mouse_move = type_text = press_key = hotkey = scroll = get_screen_size = _desktop_unavailable
+    get_open_windows = focus_window = minimize_window = maximize_window = minimize_all_windows = _desktop_unavailable
+    set_volume = get_volume = mute_volume = unmute_volume = set_brightness = get_brightness = lock_screen = get_pc_stats = _desktop_unavailable
+    open_application = close_application = is_app_running = _desktop_unavailable
 
 
 @tool
@@ -1276,6 +1347,8 @@ ALL_TOOLS = [
     disable_alarm,
     alarm_status,
     reconcile_alarms,
+    retry_alarm_cleanup,
+    retry_alarm_delivery,
     create_calendar_event,
     get_upcoming_events,
     delete_calendar_event,

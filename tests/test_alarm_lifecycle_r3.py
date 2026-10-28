@@ -40,6 +40,17 @@ def test_migration_preserves_cancelled_state(tmp_path):
 
 
 @pytest.mark.safe_smoke
+def test_migration_preserves_legacy_disabled_projection(tmp_path):
+    path = tmp_path / "disabled.db"
+    with sqlite3.connect(path) as conn:
+        conn.execute("CREATE TABLE alarms (id TEXT PRIMARY KEY, time TEXT NOT NULL, label TEXT, enabled BOOLEAN DEFAULT 1, notified BOOLEAN DEFAULT 0, scheduled_task_name TEXT)")
+        conn.execute("INSERT INTO alarms VALUES ('disabled-1', '08:00', 'Disabled', 0, 0, NULL)")
+    row = AlarmManager(str(path)).get_alarm_by_id("disabled-1")
+    assert row["lifecycle"] == "disabled"
+    assert row["status"] == "disabled"
+
+
+@pytest.mark.safe_smoke
 def test_claim_is_atomic_under_concurrency(tmp_path):
     manager = AlarmManager(str(tmp_path / "alarms.db"))
     alarm_id = manager.add_alarm("08:00", target_at=datetime(2026, 1, 1, 7))
@@ -159,6 +170,7 @@ def test_scheduler_nonzero_and_timeout_are_not_success(monkeypatch):
     monkeypatch.setattr(WindowsScheduler, "runner", lambda *a, **k: (_ for _ in ()).throw(subprocess.TimeoutExpired("schtasks", 15)))
     unknown = WindowsScheduler.register_alarm_result("r3-timeout", "08:00")
     assert unknown.ok is False and unknown.unknown_outcome is True
+    assert unknown.task_name == WindowsScheduler.task_name_for_alarm("r3-timeout")
     try:
         os.remove(os.path.join("data", "reminder_r3-timeout.bat"))
     except OSError:

@@ -77,12 +77,26 @@ def retry_cleanup(alarm_id: str, *, db_path: str | None = None, scheduler=Window
         return {"ok": True, "state": "done"}
     try:
         result = scheduler.unregister_task_result(task_name) if hasattr(scheduler, "unregister_task_result") else scheduler.unregister_task(task_name)
-        ok = result.ok if isinstance(result, ToolResult) else bool(result)
+        if isinstance(result, ToolResult):
+            ok = result.ok
+            unknown = result.unknown_outcome
+            error = result.get("error", "cleanup failed")
+            hint = result.hint
+        elif isinstance(result, dict):
+            ok = bool(result.get("ok", result.get("success", False)))
+            unknown = bool(result.get("unknown_outcome", False))
+            error = result.get("error", "cleanup failed")
+            hint = result.get("hint", "Retry cleanup.")
+        else:
+            ok = bool(result)
+            unknown = False
+            error = "cleanup failed"
+            hint = "Retry cleanup."
         if ok:
             manager.mark_cleanup_done(alarm_id)
             return {"ok": True, "state": "done"}
-        manager.mark_cleanup_failed(alarm_id, result.get("error", "cleanup failed") if isinstance(result, dict) else "cleanup failed", hint=getattr(result, "hint", "Retry cleanup."), unknown=bool(getattr(result, "unknown_outcome", False)))
-        return {"ok": False, "state": "unknown" if getattr(result, "unknown_outcome", False) else "failed"}
+        manager.mark_cleanup_failed(alarm_id, error, hint=hint, unknown=unknown)
+        return {"ok": False, "state": "unknown" if unknown else "failed"}
     except Exception as exc:
         manager.mark_cleanup_failed(alarm_id, str(exc), unknown=True)
         return {"ok": False, "state": "unknown"}
