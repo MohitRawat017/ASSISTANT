@@ -37,6 +37,19 @@ CREDENTIALS_PATH = os.path.join(Config.BASE_DIR, "src", "credentials", "credenti
 TOKEN_PATH = os.path.join(Config.BASE_DIR, "src", "credentials", "token.json")
 
 
+def _display_path(path: str) -> str:
+    """Return a repo-relative path, falling back to the basename.
+
+    ``os.path.relpath`` raises ``ValueError`` when the path and ``BASE_DIR``
+    are on different Windows drives (tests use temp directories), and absolute
+    paths must never appear in user-facing messages.
+    """
+    try:
+        return os.path.relpath(path, Config.BASE_DIR)
+    except ValueError:
+        return os.path.basename(path)
+
+
 class ReauthRequired(RuntimeError):
     """A saved Google token exists but cannot be used or silently refreshed.
 
@@ -69,7 +82,7 @@ def _refresh_request():
 def _auth_unavailable(reason: str) -> RuntimeError:
     return RuntimeError(
         f"{reason} Run an interactive Google auth flow to regenerate "
-        f"{os.path.relpath(TOKEN_PATH, Config.BASE_DIR)}."
+        f"{_display_path(TOKEN_PATH)}."
     )
 
 
@@ -112,8 +125,8 @@ def get_credentials(allow_interactive: bool = True) -> Credentials:
         RuntimeError: no saved token exists (and no browser flow may run), or
             the saved token file could not be read.
     """
-    token_rel = os.path.relpath(TOKEN_PATH, Config.BASE_DIR)
-    credentials_rel = os.path.relpath(CREDENTIALS_PATH, Config.BASE_DIR)
+    token_rel = _display_path(TOKEN_PATH)
+    credentials_rel = _display_path(CREDENTIALS_PATH)
 
     creds = None
 
@@ -268,4 +281,4 @@ if __name__ == "__main__":
         get_credentials(allow_interactive=True)
     except Exception as exc:
         raise SystemExit(str(exc)) from exc
-    print(f"Google credentials saved to {os.path.relpath(TOKEN_PATH, Config.BASE_DIR)}")
+    print(f"Google credentials saved to {_display_path(TOKEN_PATH)}")
